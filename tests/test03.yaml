@@ -1,0 +1,48 @@
+# -----------------------------------------------------------------------
+# This file is part of Pykatsevich distribution (https://github.com/astra-toolbox/helical-kats).
+# Copyright (c) 2024 imec-Vision Lab, University of Antwerp.
+# 
+# This program is free software: you can redistribute it and/or modify  
+# it under the terms of the GNU General Public License as published by  
+# the Free Software Foundation, version 3.
+#
+# This program is distributed in the hope that it will be useful, but 
+# WITHOUT ANY WARRANTY; without even the implied warranty of 
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License 
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# -----------------------------------------------------------------------
+
+units: mm
+geometry:
+    SOD: 50
+    SDD: 80
+    detector:
+      detector psize: 0.625 # 0.3125 # 0.625 # 
+      detector rows : 58 #58
+      detector cols : 64 # 64
+    helix:
+      angles_count: 256
+      pitch_mm_rad: 5.25 # 6.4346 # pitch in mm per radian # 5.15
+      angles_range : 7.084794
+    options:
+      detector_rebin_rows: 128
+
+phantom:
+  voxel_size: 0.32 # 0.32
+  rows: 54 # 54
+  columns: 56 # 56
+  slices: 58 # 58
+  objects:
+    - type: sphere
+      R:    3
+      x_0:  3
+      y_0:  0
+      z_0: -4
+    - type: sphere
+      R:    1.25
+      x_0:  0
+      y_0:  3
+      z_0:  4.5
