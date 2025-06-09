@@ -109,9 +109,14 @@ def create_configuration(
     # print(f"s_min = {helical_conf['s_min']}, s_max = {helical_conf['s_max']}")
     # print(f"helical_conf['source_pos'] = {helical_conf['source_pos']}")
 
-    helical_conf['pixel_span'] = scan_geometry['detector']['detector psize']
-    helical_conf['pixel_height'] = scan_geometry['detector']['detector psize']
-    helical_conf['detector_pixel_span'] = helical_conf['detector_pixel_height'] = helical_conf['detector_pixel_width'] = scan_geometry['detector']['detector psize']
+    helical_conf['detector_pixel_span_u'] = scan_geometry['detector']['detector psize u']
+    helical_conf['detector_pixel_span_v'] = scan_geometry['detector']['detector psize v']
+
+    helical_conf['detector_pixel_width'] = helical_conf['detector_pixel_span_u']
+    helical_conf['detector_pixel_height'] = helical_conf['detector_pixel_span_v']
+
+    helical_conf['pixel_span'] = helical_conf['detector_pixel_span_u']
+    helical_conf['pixel_height'] = helical_conf['detector_pixel_span_v']
 
     helical_conf['detector_rebin_rows'] = katsevich_options.get('detector_rebin_rows', 64) # The default value is 64
     # print(f"detector_rebin_rows = {helical_conf['detector_rebin_rows']}")
@@ -122,12 +127,12 @@ def create_configuration(
     
     helical_conf['detector_rebin_rows_height'] = (np.pi + 2* helical_conf['half_fan_angle']) / (helical_conf['detector_rebin_rows'] - 1)
 
-    helical_conf['col_coords'] = scan_geometry['detector']['detector psize'] * (np.arange(scan_geometry['detector']['detector cols'] + 1, dtype=np.float32)
+    helical_conf['col_coords'] = scan_geometry['detector']['detector psize u'] * (np.arange(scan_geometry['detector']['detector cols'] + 1, dtype=np.float32)
               + 0.0 # Here "0.0" is a hardcoded value of conf['detector_column_offset']
               - 0.5*(scan_geometry['detector']['detector cols'] - 1)
               ) # EXTENDED coordinates!
 
-    helical_conf['row_coords'] = scan_geometry['detector']['detector psize'] * (np.arange(scan_geometry['detector']['detector rows'] + 1, dtype=np.float32)
+    helical_conf['row_coords'] = scan_geometry['detector']['detector psize v'] * (np.arange(scan_geometry['detector']['detector rows'] + 1, dtype=np.float32)
               + 0.0 # Here "0.0" is a hardcoded value of conf['detector_column_offset']
               - 0.5*(scan_geometry['detector']['detector rows'] - 1)
               ) # EXTENDED coordinates!

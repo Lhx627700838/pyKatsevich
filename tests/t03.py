@@ -29,14 +29,19 @@ def test_pipeline(settings_file):
     import os
     import astra
 
-    test_dir = os.getcwd()
     try:
-        test_dir = os.sep.join(__file__.split("/")[:-1])
+        test_dir = os.path.dirname(os.path.abspath(__file__))
     except:
-        print("Failed to pick the path to the Python file, picking current work directory instead")
+        print("Failed to get __file__, using current working directory instead")
+        test_dir = os.getcwd()
 
-    yaml_settings = {}
-    with open(os.sep.join([test_dir, settings_file]), "r") as file:
+    # 拼接 yaml 文件完整路径
+    yaml_path = os.path.join(test_dir, settings_file)
+
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f"配置文件未找到: {yaml_path}")
+
+    with open(yaml_path, "r") as file:
         yaml_settings = yaml.safe_load(file)
 
     phantom_settings = yaml_settings['phantom']
@@ -48,6 +53,8 @@ def test_pipeline(settings_file):
 
     geom = yaml_settings['geometry']
     
+    import sys
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from pykatsevich.initialize import create_configuration
 
     print("Projecting the phantom", end='...')
@@ -66,6 +73,7 @@ def test_pipeline(settings_file):
     plt.imshow(sinogram_swapped[sinogram_swapped.shape[0] // 2], cmap='gray')
     plt.colorbar()
     plt.title("Central projection (simulated with ASTRA)")
+
 
     from pykatsevich.reconstruct import reconstruct
 
