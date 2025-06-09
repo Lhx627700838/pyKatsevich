@@ -114,6 +114,35 @@ def differentiate(
 
     return output_array
 
+
+def fw_height_rebinning_fast(input_array, conf, tqdm_bar=True):
+    import numpy as np
+    from tqdm import tqdm
+    pixel_height = conf['pixel_height']
+    detector_rows = conf['detector rows']
+    detector_columns = conf['detector cols']
+    detector_row_offset = 0
+    fwd_rebin_row = conf['fwd_rebin_row']
+    detector_rebin_rows = conf['detector_rebin_rows']
+
+    output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=input_array.dtype)
+
+    range_object = tqdm(range(input_array.shape[0]), desc="Forward rebin") if tqdm_bar else range(input_array.shape[0])
+
+    # 向量化处理 row_scaled
+    row_scaled = fwd_rebin_row / pixel_height + 0.5 * detector_rows - detector_row_offset
+    np.clip(row_scaled, 0, detector_rows - 2, out=row_scaled)
+    row = np.floor(row_scaled).astype(np.int32)
+    row_frac = row_scaled - row
+
+    for proj in range_object:
+        # 批量索引 input_array[proj, row, col]，构建二维索引
+        values_lower = input_array[proj, row, np.arange(detector_columns)]
+        values_upper = input_array[proj, row + 1, np.arange(detector_columns)]
+        output_array[proj] = (1 - row_frac) * values_lower + row_frac * values_upper
+
+    return output_array
+
 def fw_height_rebinning(
         input_array,
         conf, # Helical scan configuration helpful for the katsevich formula
@@ -187,24 +216,48 @@ def fw_height_rebinning(
 def compute_hilbert_kernel(
         conf
     ):
+    from tqdm import tqdm
     proj_filter_array = np.zeros(conf['kernel_width'], dtype=np.float32)
 
     # We use a simplified hilbert kernel for now
 
     kernel_radius = conf['kernel_radius']
-    for i in range(conf['kernel_width']):
+    for i in tqdm(range(conf['kernel_width'])):
         proj_filter_array[i] = (1.0 - np.cos(np.pi * (i - kernel_radius - 0.5))) \
                             / (np.pi * (i - kernel_radius - 0.5))
     
     return proj_filter_array
 
 
+
+def hilbert_conv_ff(input_array, hilbert_array, conf):
+    from scipy.signal import fftconvolve
+    import numpy as np
+    from tqdm import tqdm
+    detector_columns = conf['detector cols']
+    detector_rebin_rows = conf['detector_rebin_rows']
+
+    output_array = np.zeros_like(input_array)
+
+    for proj in tqdm(range(input_array.shape[0])):
+        for rebin_row in range(detector_rebin_rows):
+            # 使用 fftconvolve 替代普通卷积
+            filtered = fftconvolve(
+                input_array[proj, rebin_row, :],
+                hilbert_array,
+                mode='full'
+            )
+            # 取中心部分
+            output_array[proj, rebin_row, :] = filtered[detector_columns - 1:2 * detector_columns - 1]
+
+    return output_array
+
 def hilbert_conv(
         input_array,
         hilbert_array,
         conf
     ):
-
+    from tqdm import tqdm
     from numpy import convolve
 
     detector_columns = conf['detector cols']
@@ -213,7 +266,7 @@ def hilbert_conv(
     output_array = np.zeros_like(input_array)
     # TODO: use rectangular hilbert window as suggested in Noo paper?
 
-    for proj_index in range(0, input_array.shape[0]):
+    for proj_index in tqdm(range(0, input_array.shape[0])):
         proj = proj_index - 0
         for rebin_row in range(detector_rebin_rows):
 
@@ -328,7 +381,7 @@ def filter_katsevich(
     diff_proj = differentiate(input_array, conf, diff_tqdm_bar)
     t2 = time()
     if diff_print_time:
-        print(f"Done in {t2-t1:.4f} seconds")
+        print(f"differentiate Done in {t2-t1:.4f} seconds")
 
     fwd_rebin_opts = verbosity_options.get("FwdRebin", {})
     fwd_rebin_tqdm_bar = fwd_rebin_opts.get("Progress bar", False)
@@ -337,14 +390,14 @@ def filter_katsevich(
     if fwd_rebin_time and not fwd_rebin_tqdm_bar:
         print("Forward height rebinning step", end="... ")
     t1 = time()
-    fwd_rebin_array = fw_height_rebinning(diff_proj, conf, fwd_rebin_tqdm_bar)
+    fwd_rebin_array = fw_height_rebinning_fast(diff_proj, conf, fwd_rebin_tqdm_bar)
     t2 = time()
     if fwd_rebin_time:
-        print(f"Done in {t2-t1:.4f} seconds")
+        print(f"fhr Done in {t2-t1:.4f} seconds")
 
     hilbert_array = compute_hilbert_kernel(conf)
-    sino_heilbert_trans = hilbert_conv(fwd_rebin_array, hilbert_array, conf)
-
+    sino_heilbert_trans = hilbert_conv_ff(fwd_rebin_array, hilbert_array, conf)
+    print('hilbert done')
     back_rebin_opts = verbosity_options.get("BackRebin", {})
     back_rebin_tqdm_bar = back_rebin_opts.get("Progress bar", False)
     back_rebin_time = back_rebin_opts.get("Print time", False)
@@ -355,7 +408,7 @@ def filter_katsevich(
     filtered_projections = rev_rebin_vec(sino_heilbert_trans, conf, back_rebin_tqdm_bar)
     t2 = time()
     if back_rebin_time:
-        print(f"Done in {t2-t1:.4f} seconds")
+        print(f"bhr Done in {t2-t1:.4f} seconds")
 
     return filtered_projections
 
