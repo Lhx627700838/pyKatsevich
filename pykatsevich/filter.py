@@ -213,6 +213,114 @@ def fw_height_rebinning(
 
     return output_array
 
+def fw_Kcurve_rebinning(input_array, conf):
+    import numpy as np
+    from tqdm import tqdm
+
+    D = conf['scan_radius']
+    P = conf['progress_per_turn']
+    R0 = conf['scan_diameter']
+    pixel_height = conf['pixel_height']
+    detector_columns_coordinate = conf['col_coords']
+    detector_rows = conf['detector rows']
+    detector_columns = conf['detector cols']
+    detector_row_offset = 0
+    detector_rebin_rows = conf['detector_rebin_rows']
+
+    alpha_m = 0.426235
+    M = 47
+    psi_list = np.linspace(-np.pi/2 - alpha_m, np.pi/2 + alpha_m, 2 * M + 1)
+
+    output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=np.float32)
+    wk_index_map = np.zeros((2 * M + 1, detector_columns), dtype=np.float32)
+
+    # ==== 计算 wk_index_map，只执行一次 ====
+    tan_psi = np.tan(psi_list)
+    tan_psi[np.abs(tan_psi) < 1e-6] = 1e-6  # 避免除0
+    term = psi_list / tan_psi
+
+    for col in range(detector_columns):
+        u = detector_columns_coordinate[col]
+        w_k = (D * P / (2 * np.pi * R0)) * (psi_list + term * (u / D))
+        w_k_index = w_k / pixel_height + 0.5 * detector_rows - detector_row_offset
+        w_k_index = np.clip(w_k_index, 0.0, detector_rows - 2.001)  # 保证 idx_floor+1 不越界
+
+        wk_index_map[:, col] = w_k_index
+
+    idx_floor = np.floor(wk_index_map).astype(np.int32)  # shape: (detector_rebin_rows, detector_cols)
+    frac = wk_index_map - idx_floor
+
+    # ==== 插值执行 ====
+
+    for proj in tqdm(range(input_array.shape[0]), "Forward rebin."):
+        data = input_array[proj]  # shape: (detector_rows, detector_cols)
+        for col in range(detector_columns):
+            floor_idx = idx_floor[:, col]
+            f = frac[:, col]
+            output_array[proj, :, col] = (1 - f) * data[floor_idx, col] + f * data[floor_idx + 1, col]
+
+    return output_array, wk_index_map, psi_list
+
+
+def fw_Kcurve_rebinning_fast(input_array, conf, M=47):
+    import numpy as np
+
+    # === 读取配置 ===
+    D = conf['scan_radius']
+    P = conf['progress_per_turn']
+    R0 = conf['scan_diameter']
+    pixel_height = conf['pixel_height']
+    detector_rows = conf['detector rows']
+    detector_columns = conf['detector cols']
+    detector_row_offset = 0
+    detector_rebin_rows = conf['detector_rebin_rows']
+
+    # 确保 col_coords 长度一致
+    col_coords = conf['col_coords'][:detector_columns]  # 修正关键点
+
+    # === 构造 psi 和 u 网格 ===
+    alpha_m = 0.426235
+    psi_list = np.linspace(-np.pi / 2 - alpha_m, np.pi / 2 + alpha_m, 2 * M + 1)  # shape: (95,)
+    psi_grid, u_grid = np.meshgrid(psi_list, col_coords, indexing='ij')  # shape: (95, 1376)
+
+    # 避免除 0
+    tan_psi = np.tan(psi_grid)
+    tan_psi[np.abs(tan_psi) < 1e-6] = 1e-6
+    term = psi_grid / tan_psi
+
+    # === 计算 wk 映射 ===
+    w_k = (D * P / (2 * np.pi * R0)) * (psi_grid + term * (u_grid / D))
+    w_k_index = w_k / pixel_height + 0.5 * detector_rows - detector_row_offset
+    w_k_index = np.clip(w_k_index, 0.0, detector_rows - 2.001)
+
+    idx_floor = np.floor(w_k_index).astype(np.int32)  # shape: (95, 1376)
+    frac = w_k_index - idx_floor
+
+    # 保存 index map
+    wk_index_map = w_k_index.astype(np.float32)
+
+    # === 插值 ===
+    n_proj = input_array.shape[0]
+    output_array = np.empty((n_proj, detector_rebin_rows, detector_columns), dtype=np.float32)
+
+    col_idx = np.broadcast_to(np.arange(detector_columns), idx_floor.shape)  # shape: (95, 1376)
+
+    for proj in range(n_proj):
+        data = input_array[proj]  # shape: (detector_rows, detector_columns)
+
+        # gather data for interpolation
+        gather1 = data[idx_floor, col_idx]               # shape: (95, 1376)
+        gather2 = data[idx_floor + 1, col_idx]           # shape: (95, 1376)
+
+        # 线性插值
+        output_array[proj] = (1 - frac) * gather1 + frac * gather2
+
+    return output_array, wk_index_map, psi_list
+
+
+
+
+
 def compute_hilbert_kernel(
         conf
     ):
@@ -252,6 +360,39 @@ def hilbert_conv_ff(input_array, hilbert_array, conf):
 
     return output_array
 
+def hilbert_conv_gpu(input_array, hilbert_array, conf):
+    import cupy as cp
+    from cupy.fft import fft, ifft
+    from tqdm import tqdm
+
+    # 输入数据 shape
+    n_proj, n_rebin_rows, n_cols = input_array.shape
+    L_filter = hilbert_array.shape[0]
+    n_fft = n_cols + L_filter - 1
+
+    # 上传 Hilbert kernel 到 GPU，并执行 FFT
+    hilbert_gpu = cp.asarray(hilbert_array, dtype=cp.float32)
+    hilbert_fft = fft(hilbert_gpu, n=n_fft)
+
+    # 上传输入数据到 GPU
+    input_gpu = cp.asarray(input_array, dtype=cp.float32)
+
+    # 创建输出数组
+    output_gpu = cp.zeros_like(input_gpu)
+
+    for proj in tqdm(range(n_proj), desc="Hilbert GPU FFT"):
+        # shape: (rebin_rows, cols)
+        data = input_gpu[proj]
+        data_fft = fft(data, n=n_fft, axis=1)  # shape: (rows, n_fft)
+        result_fft = data_fft * hilbert_fft[cp.newaxis, :]  # broadcasting
+        result = cp.real(ifft(result_fft, axis=1))[:, (L_filter - 1):(L_filter - 1 + n_cols)]
+        output_gpu[proj] = result
+
+    # 下载回 CPU
+    output_array = cp.asnumpy(output_gpu)
+
+    return output_array
+
 def hilbert_conv(
         input_array,
         hilbert_array,
@@ -283,10 +424,90 @@ def hilbert_conv(
             output_array[proj, rebin_row, :] = tmp
     
     return output_array
+def hilbert_conv_gpu_batched(input_array, hilbert_array, conf, batch_size=200, gpu_id=0):
+    import cupy as cp
+    from cupy.fft import fft, ifft
+    from tqdm import tqdm
+    import numpy as np
+
+    n_proj, n_rebin_rows, n_cols = input_array.shape
+    L_filter = hilbert_array.shape[0]
+    n_fft = n_cols + L_filter - 1  # for full convolution
+
+    output_array = np.zeros_like(input_array, dtype=np.float32)
+
+    with cp.cuda.Device(gpu_id):  # 安全地绑定 GPU
+        hilbert_gpu = cp.asarray(hilbert_array, dtype=cp.float32)
+        hilbert_fft = fft(hilbert_gpu, n=n_fft)
+
+        for start in tqdm(range(0, n_proj, batch_size), desc="Hilbert GPU FFT Batches"):
+            end = min(start + batch_size, n_proj)
+            B = end - start
+
+            # shape (B, H, W)
+            batch_cpu = input_array[start:end]
+            batch_gpu = cp.asarray(batch_cpu, dtype=cp.float32)
+
+            # padding to match full convolution
+            pad_width = n_fft - n_cols
+            batch_gpu_padded = cp.pad(batch_gpu, ((0, 0), (0, 0), (0, pad_width)), mode='constant')
+
+            # FFT along last axis
+            batch_fft = fft(batch_gpu_padded, axis=2)
+            result_fft = batch_fft * hilbert_fft[cp.newaxis, cp.newaxis, :]
+            result_ifft = ifft(result_fft, axis=2)
+
+            # crop: center part = convolution output (same as np.convolve(..., mode='full')) center
+            result = cp.real(result_ifft[:, :, (L_filter - 1):(L_filter - 1 + n_cols)])
+
+            # bring back to CPU
+            output_array[start:end] = cp.asnumpy(result)
+
+    return output_array
+
 
 def hilbert_trans_scipy(input_array):
     from scipy.signal import hilbert
     output_array = np.imag(hilbert(input_array, axis=2))
+    return output_array
+
+def rev_rebin_vec_fast(input_array, conf, tqdm_bar=False):
+    """
+    Fast and safe vectorized reverse rebinning.
+    """
+    from tqdm import tqdm
+    detector_rows = conf['detector rows']
+    detector_columns = conf['detector cols']
+    rebin_row = conf['rebin_row']
+    fracs_0 = conf['rebin_fracs_0']
+    fracs_1 = conf['rebin_fracs_1']
+
+    num_projs = input_array.shape[0]
+    output_array = np.zeros((num_projs, detector_rows, detector_columns), dtype=input_array.dtype)
+    pos_start = int(0.5 * detector_columns)
+
+    for proj in tqdm(range(num_projs)):
+        src = input_array[proj]  # shape: (rebin_rows, cols)
+        dst = output_array[proj]
+
+        # Right side: use rebin_row and rebin_row+1
+        for col in range(pos_start, detector_columns):
+            idx0 = rebin_row[:, col]           # (detector_rows,)
+            idx1 = rebin_row[:, col] + 1
+            dst[:, col] = (
+                fracs_1[:, col] * src[idx0, col] +
+                fracs_0[:, col] * src[idx1, col]
+            )
+
+        # Left side: use rebin_row-1 and rebin_row
+        for col in range(pos_start):
+            idx0 = rebin_row[:, col] - 1
+            idx1 = rebin_row[:, col]
+            dst[:, col] = (
+                fracs_1[:, col] * src[idx0, col] +
+                fracs_0[:, col] * src[idx1, col]
+            )
+
     return output_array
 
 def rev_rebin_vec(
@@ -351,6 +572,99 @@ def rev_rebin_vec(
 
     return dst
 
+def bw_Kcurve_rebinning(input_array, wk_index_map, conf):
+    import numpy as np
+    from tqdm import tqdm
+
+    detector_rows = conf['detector rows']
+    detector_columns = conf['detector cols']
+    detector_row_offset = 0
+
+    n_proj = input_array.shape[0]
+    n_psi = wk_index_map.shape[0]
+
+    output_array = np.zeros((n_proj, detector_rows, detector_columns), dtype=np.float32)
+
+    for proj in tqdm(range(n_proj), "Backward rebin."):
+        for col in range(detector_columns):
+            for row in range(detector_rows):
+                w_idx = row - 0.5 * detector_rows + detector_row_offset  # physical w location
+
+                # 找到 ψ_idx 满足 wk_index_map[ψ_idx, col] 最接近 w_idx
+                wk_col = wk_index_map[:, col]
+                if wk_col[0] > w_idx or wk_col[-1] < w_idx:
+                    continue  # 超出范围，不插值
+
+                idx_upper = np.searchsorted(wk_col, w_idx, side='right')
+                idx_lower = idx_upper - 1
+
+                if idx_upper >= n_psi or idx_lower < 0:
+                    continue
+
+                wk0 = wk_col[idx_lower]
+                wk1 = wk_col[idx_upper]
+                f0 = input_array[proj, idx_lower, col]
+                f1 = input_array[proj, idx_upper, col]
+
+                # 线性插值
+                if wk1 == wk0:
+                    val = f0
+                else:
+                    weight = (w_idx - wk0) / (wk1 - wk0)
+                    val = (1 - weight) * f0 + weight * f1
+
+                output_array[proj, row, col] = val
+
+    return output_array
+
+def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf,originalinput):
+    import numpy as np
+    from tqdm import tqdm
+
+    detector_rows = conf['detector rows']
+    detector_columns = conf['detector cols']
+    detector_row_offset = 0
+
+    n_proj = input_array.shape[0]
+    n_psi = wk_index_map.shape[0]
+
+    output_array = np.zeros((n_proj, detector_rows, detector_columns), dtype=np.float32)
+
+    # 对每个列做一次插值映射（因为 wk_index_map 只跟列相关）
+    for col in tqdm(range(detector_columns), desc="Backward rebin."):
+        wk_col = wk_index_map[:, col]
+
+        # 提前预取该列所有插值坐标及权重
+        for row in range(detector_rows):
+            w_idx = row
+
+            # 若当前 row 对应的 w 不在 wk_col 的范围内，则跳过
+            if wk_col[0] > w_idx or wk_col[-1] < w_idx:
+                continue
+
+            # 查找插值点上下界索引
+            idx_upper = np.searchsorted(wk_col, w_idx, side='right')
+            idx_lower = idx_upper - 1
+
+            if idx_upper >= n_psi or idx_lower < 0:
+                continue  # 越界则跳过
+
+            wk0 = wk_col[idx_lower]
+            wk1 = wk_col[idx_upper]
+            w = (w_idx - wk0) / (wk1 - wk0) if wk1 != wk0 else 0.0
+
+            # 批量插值：对所有投影进行线性插值
+            f0 = input_array[:, idx_lower, col]  # shape: (n_proj,)
+            f1 = input_array[:, idx_upper, col]  # shape: (n_proj,)
+            val = (1 - w) * f0 + w * f1
+
+            # 写回所有投影
+            output_array[:, row, col] = val
+
+    return output_array
+
+
+
 def filter_katsevich(
     input_array: np.ndarray, # The shape expected is (views, rows, columns)
     conf: dict,
@@ -390,13 +704,17 @@ def filter_katsevich(
     if fwd_rebin_time and not fwd_rebin_tqdm_bar:
         print("Forward height rebinning step", end="... ")
     t1 = time()
-    fwd_rebin_array = fw_height_rebinning_fast(diff_proj, conf, fwd_rebin_tqdm_bar)
+    #fwd_rebin_array = fw_height_rebinning_fast(diff_proj, conf, fwd_rebin_tqdm_bar)
+    fwd_rebin_array, wk_index_map, psi_list = fw_Kcurve_rebinning(diff_proj, conf)
     t2 = time()
     if fwd_rebin_time:
         print(f"fhr Done in {t2-t1:.4f} seconds")
 
     hilbert_array = compute_hilbert_kernel(conf)
-    sino_heilbert_trans = hilbert_conv_ff(fwd_rebin_array, hilbert_array, conf)
+    sino_hilbert_trans = hilbert_conv_ff(fwd_rebin_array,hilbert_array,conf)
+    #sino_hilbert_trans_gpu = hilbert_conv_gpu_batched(fwd_rebin_array,hilbert_array,conf,batch_size=200,gpu_id=0)
+    #print("Max diff:", np.max(np.abs(sino_hilbert_trans - sino_hilbert_trans_gpu)))
+    cp.get_default_memory_pool().free_all_blocks()
     print('hilbert done')
     back_rebin_opts = verbosity_options.get("BackRebin", {})
     back_rebin_tqdm_bar = back_rebin_opts.get("Progress bar", False)
@@ -405,11 +723,17 @@ def filter_katsevich(
     if back_rebin_time and not back_rebin_tqdm_bar:
         print("Backward height rebinning step", end="... ")
     t1 = time()
-    filtered_projections = rev_rebin_vec(sino_heilbert_trans, conf, back_rebin_tqdm_bar)
+    #filtered_projections = rev_rebin_vec_fast(sino_hilbert_trans_gpu, conf, back_rebin_tqdm_bar)
+    filtered_projections = bw_Kcurve_rebinning_fast(sino_hilbert_trans, wk_index_map, conf,input_array)
     t2 = time()
     if back_rebin_time:
         print(f"bhr Done in {t2-t1:.4f} seconds")
-
+    # import tifffile
+    # tifffile.imwrite('filtered_proj1.tif',input_array)
+    # tifffile.imwrite('filtered_proj2.tif',diff_proj)
+    # tifffile.imwrite('filtered_proj3.tif',fwd_rebin_array)
+    # tifffile.imwrite('filtered_proj4.tif',sino_hilbert_trans)
+    # tifffile.imwrite('filtered_proj4=5.tif',filtered_projections)
     return filtered_projections
 
 def flat_backproject_chunk(

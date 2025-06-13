@@ -55,6 +55,11 @@ def reconstruct(
             conf,
             filt_opts
         )
+    print(type(filtered_projections))
+    print(np.shape(filtered_projections))
+    import tifffile
+    tifffile.imwrite('filtered_proj.tif',filtered_projections)
+    
     sino_td = sino_weight_td(filtered_projections, conf, False)
 
     backproject_opts = verbosity_options.get("BackProj", {})

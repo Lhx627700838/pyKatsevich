@@ -55,7 +55,7 @@ def test_pipeline(settings_file):
     
 
 
-    sinogram = tifffile.imread(r"E:\BMEmaster\specializedlab\pykatsevich\helical-kats\pyKatsevich\scan_001_flat_helix_projections.tif")
+    sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\scan_001_flat_helix_projections.tif")
     vol_geom, proj_geom = generate_astra_geom(recon_shape, voxel_size, geom)
 
     conf=create_configuration(
@@ -150,7 +150,7 @@ def generate_astra_geom(volume_shape, voxel_size, helical_scan_geom):
 
 
 if __name__=="__main__":
-    yaml_settings_file = "Naeotom.yaml"
+    yaml_settings_file = "Naeotom_spine_10919.yaml"
     test_pipeline(yaml_settings_file)
 
 
