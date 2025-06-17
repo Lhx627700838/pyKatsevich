@@ -21,7 +21,7 @@ In the end, both Numpy and ASTRA backprojections are run on the filtered data.
 """
 def test_pipeline(settings_file):
 
-    from common import phantom_objects_3d, project, animate_volume, backproject
+    from tests.common import phantom_objects_3d, project, animate_volume, backproject
 
     import numpy as np
     from matplotlib import pyplot as plt
@@ -30,11 +30,11 @@ def test_pipeline(settings_file):
     import os
     import astra
 
-    test_dir = os.getcwd()
     try:
-        test_dir = os.sep.join(__file__.split("/")[:-1])
+        test_dir = os.path.dirname(os.path.abspath(__file__))
     except:
-        print("Failed to pick the path to the Python file, picking current work directory instead")
+        print("Failed to get __file__, using current working directory instead")
+        test_dir = os.getcwd()
 
     yaml_settings = {}
     with open(os.sep.join([test_dir, settings_file]), "r") as file:
@@ -57,7 +57,7 @@ def test_pipeline(settings_file):
 
     geom = yaml_settings['geometry']
     
-    from pykatsevich.initialize import create_configuration
+    from pykatsevich.initialize_orig import create_configuration
 
     print("Projecting the phantom", end='...')
     sinogram, vol_geom, proj_geom = project(phantom, voxel_size, geom)

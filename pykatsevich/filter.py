@@ -233,8 +233,8 @@ def fw_Kcurve_rebinning(input_array, conf):
     psi_list = np.linspace(-np.pi/2 - alpha_m, np.pi/2 + alpha_m, M)
     detector_rebin_rows= M
     output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=np.float32)
-    wk_index_map = np.zeros((M, detector_columns), dtype=np.float32)
-
+    wk_index_map = np.zeros((2 * M + 1, detector_columns), dtype=np.float32)
+    print('output_array.shape',output_array.shape)
     # ==== 计算 wk_index_map，只执行一次 ====
     tan_psi = np.tan(psi_list)
     tan_psi[np.abs(tan_psi) < 1e-6] = 1e-6  # 避免除0
@@ -256,7 +256,7 @@ def fw_Kcurve_rebinning(input_array, conf):
     for proj in tqdm(range(input_array.shape[0]), "Forward rebin."):
         data = input_array[proj]  # shape: (detector_rows, detector_cols)
         for col in range(detector_columns):
-            floor_idx = idx_floor[:, col]
+            floor_idx = idx_floor[:, col] 
             f = frac[:, col]
             output_array[proj, :, col] = (1 - f) * data[floor_idx, col] + f * data[floor_idx + 1, col]
 
@@ -1163,7 +1163,7 @@ def backproject_a(
         tqdm_imported = True
     except:
         tqdm_imported = False
-
+    ### 1. 前期准备：输入和 ASTRA 几何设置
     x_voxels = conf['x_voxels']
     y_voxels = conf['y_voxels']
     x_min = conf['x_min']
@@ -1173,7 +1173,9 @@ def backproject_a(
 
     scan_radius = conf['scan_radius']
     source_pos = conf['source_pos']
-
+    ### 2. 核心部分：自定义 CUDA kernel：scale_integrate_kernel
+    ### 针对每个体素 (X,Y)，根据当前角度计算源点在 detector 上的投影距离 v*
+    ### 这相当于 Katsevich 公式中的加权项 
     scale_integrate_kernel = cp.RawKernel(r'''
     extern "C" __global__
     void scale_integrate_cu(float* bp_volume, float *rec_volume, float xsize, float xmin, float ysize, float ymin, float angle, float scan_radius, float scale_const, uint3 vol_dims) {
@@ -1256,7 +1258,7 @@ def backproject_a(
     scale_coeff = astra_bp_scaling * conf['projs_per_turn']
     
     range_object = tqdm(range(proj_geom['Vectors'].shape[0]), "Backprojection (Kernel)") if tqdm_imported and tqdm_bar else range(proj_geom['Vectors'].shape[0])
-
+    ### 3. 主循环：对每个投影角度做一次加权反投影
     for proj_angle in range_object:
 
         proj_geom_view = astra.create_proj_geom(

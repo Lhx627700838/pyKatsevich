@@ -20,7 +20,7 @@ This test runs ASTRA's backprojection on filtered sinogram.
 """
 def test_pipeline(settings_file):
 
-    from common import phantom_objects_3d, project, animate_volume, backproject
+    from tests.common import phantom_objects_3d, project, animate_volume, backproject
 
     import numpy as np
     from matplotlib import pyplot as plt
@@ -59,7 +59,7 @@ def test_pipeline(settings_file):
     
     import sys
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from pykatsevich.initialize import create_configuration
+    from pykatsevich.initialize_orig import create_configuration
 
     print("Projecting the phantom", end='...')
     sinogram, vol_geom, proj_geom = project(phantom, voxel_size, geom)
