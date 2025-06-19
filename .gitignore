@@ -2,5 +2,6 @@
 build/*
 *.tif
 *.whl
+*.png
 *.egg-info*
 *__pycache__*

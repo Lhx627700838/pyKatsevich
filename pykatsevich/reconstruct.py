@@ -55,13 +55,10 @@ def reconstruct(
             conf,
             filt_opts
         )
-    print(type(filtered_projections))
-    print(np.shape(filtered_projections))
-    import tifffile
-    tifffile.imwrite('filtered_proj.tif',filtered_projections)
     
-    sino_td = sino_weight_td(filtered_projections, conf, False)
-
+    sino_td = sino_weight_td(filtered_projections, conf, True)
+    import tifffile
+    tifffile.imwrite('filtered_proj6.tif',sino_td)
     backproject_opts = verbosity_options.get("BackProj", {})
     bp_tqdm_bar = backproject_opts.get("Progress bar", False)
     bp_print_time = backproject_opts.get("Print time", False)

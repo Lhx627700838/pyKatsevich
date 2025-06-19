@@ -217,20 +217,21 @@ def fw_Kcurve_rebinning(input_array, conf):
     import numpy as np
     from tqdm import tqdm
 
-    D = conf['scan_radius']
+    D = conf['scan_diameter']
     P = conf['progress_per_turn']
-    R0 = conf['scan_diameter']
+    R0 = conf['scan_radius']
     pixel_height = conf['pixel_height']
     detector_columns_coordinate = conf['col_coords']
     detector_rows = conf['detector rows']
     detector_columns = conf['detector cols']
     detector_row_offset = 0
     detector_rebin_rows = conf['detector_rebin_rows']
+    
 
     alpha_m = 0.426235
     M = 47
     psi_list = np.linspace(-np.pi/2 - alpha_m, np.pi/2 + alpha_m, 2 * M + 1)
-
+    detector_rebin_rows= 2*M+1
     output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=np.float32)
     wk_index_map = np.zeros((2 * M + 1, detector_columns), dtype=np.float32)
 
@@ -241,7 +242,7 @@ def fw_Kcurve_rebinning(input_array, conf):
 
     for col in range(detector_columns):
         u = detector_columns_coordinate[col]
-        w_k = (D * P / (2 * np.pi * R0)) * (psi_list + term * (u / D))
+        w_k = 1*(D * P / (2 * np.pi * R0)) * (psi_list + term * (u / D))
         w_k_index = w_k / pixel_height + 0.5 * detector_rows - detector_row_offset
         w_k_index = np.clip(w_k_index, 0.0, detector_rows - 2.001)  # 保证 idx_floor+1 不越界
 
@@ -343,10 +344,11 @@ def hilbert_conv_ff(input_array, hilbert_array, conf):
     import numpy as np
     from tqdm import tqdm
     detector_columns = conf['detector cols']
-    detector_rebin_rows = conf['detector_rebin_rows']
+    detector_rebin_rows = conf['M']
 
     output_array = np.zeros_like(input_array)
-
+    print(np.shape(input_array))
+    print(detector_rebin_rows)
     for proj in tqdm(range(input_array.shape[0])):
         for rebin_row in range(detector_rebin_rows):
             # 使用 fftconvolve 替代普通卷积
@@ -617,7 +619,7 @@ def bw_Kcurve_rebinning(input_array, wk_index_map, conf):
 
     return output_array
 
-def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf,originalinput):
+def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf ,oringinaldata):
     import numpy as np
     from tqdm import tqdm
 
@@ -629,7 +631,7 @@ def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf,originalinput):
     n_psi = wk_index_map.shape[0]
 
     output_array = np.zeros((n_proj, detector_rows, detector_columns), dtype=np.float32)
-
+    # output_array = oringinaldata
     # 对每个列做一次插值映射（因为 wk_index_map 只跟列相关）
     for col in tqdm(range(detector_columns), desc="Backward rebin."):
         wk_col = wk_index_map[:, col]
@@ -728,12 +730,13 @@ def filter_katsevich(
     t2 = time()
     if back_rebin_time:
         print(f"bhr Done in {t2-t1:.4f} seconds")
-    # import tifffile
-    # tifffile.imwrite('filtered_proj1.tif',input_array)
-    # tifffile.imwrite('filtered_proj2.tif',diff_proj)
-    # tifffile.imwrite('filtered_proj3.tif',fwd_rebin_array)
-    # tifffile.imwrite('filtered_proj4.tif',sino_hilbert_trans)
-    # tifffile.imwrite('filtered_proj4=5.tif',filtered_projections)
+        
+    import tifffile
+    tifffile.imwrite('filtered_proj1.tif',input_array)
+    tifffile.imwrite('filtered_proj2.tif',diff_proj)
+    tifffile.imwrite('filtered_proj3.tif',fwd_rebin_array)
+    tifffile.imwrite('filtered_proj4.tif',sino_hilbert_trans)
+    tifffile.imwrite('filtered_proj5.tif',filtered_projections)
     return filtered_projections
 
 def flat_backproject_chunk(
@@ -1062,47 +1065,46 @@ def flat_backproject_chunk(
     # The result is scaled with delta_s/(2*pi) = projs_per_turn:
     return output_array / conf['projs_per_turn']
 
-def sino_weight_td(input_array, conf, show_td_window=False):
+def sino_weight_td(input_array, conf, show_td_window=True):
     w_bottom = np.reshape(conf['proj_row_mins'][:-1], (1, -1))
     w_top    = np.reshape(conf['proj_row_maxs'][:-1], (1, -1))
 
-    dw = conf['detector rows'] * conf['pixel_height']
+    dw = conf['pixel_height']
     a  = conf['T-D smoothing']
     W, U = np.meshgrid(conf['row_coords'][:-1], conf['col_coords'][:-1], indexing='ij')
-
+    print(np.shape(W))
     # print(f'W = {U}')
 
     def chi(a, U_mesh, W_mesh):
-        # TODO: move this function to the module scope
-        mask = np.zeros(shape=(conf['detector rows'], conf['detector cols']))
+        mask = np.zeros_like(W_mesh)
 
-        W_top_high= np.repeat(w_top+a*dw, W_mesh.shape[0], axis=0)
-        W_top_low = np.repeat(w_top-a*dw, W_mesh.shape[0], axis=0)
-        W_bottom_high = np.repeat(w_bottom+a*dw, W_mesh.shape[0], axis=0)
-        W_bottom_low  = np.repeat(w_bottom-a*dw, W_mesh.shape[0], axis=0)
+        # 提前展开上下界区间
+        W_top_high     = np.repeat(w_top + a*dw, W_mesh.shape[0], axis=0)
+        W_top_low      = np.repeat(w_top - a*dw, W_mesh.shape[0], axis=0)
+        W_bottom_high  = np.repeat(w_bottom + a*dw, W_mesh.shape[0], axis=0)
+        W_bottom_low   = np.repeat(w_bottom - a*dw, W_mesh.shape[0], axis=0)
 
-        # plt.figure()
-        # plt.imshow((W_top_low < W_mesh) & (W_mesh < W_top_high))
-        # plt.title("Top of the mask")
+        # 中心区域：设为1
+        mask[(W_mesh > W_bottom_high) & (W_mesh < W_top_low)] = 1
 
-        mask[(W_top_low < W_mesh) & (W_mesh < W_top_high)] = ((W_top_high - W_mesh) / (2*a*dw))[(W_top_low < W_mesh) & (W_mesh < W_top_high)]
+        # 上过渡区域
+        idx_upper = (W_mesh > W_top_low) & (W_mesh < W_top_high)
+        mask[idx_upper] = (W_top_high[idx_upper] - W_mesh[idx_upper]) / (2 * a * dw)
 
-        mask[(W_bottom_high < W_mesh) & (W_mesh < W_top_low)] = 1
-
-        mask[(W_bottom_low < W_mesh) & (W_mesh < W_bottom_high)] = ((W_mesh - W_bottom_low) / (2*a*dw))[(W_bottom_low < W_mesh) & (W_mesh < W_bottom_high)]
-
-        # for j in range(W_mesh.shape[0]):
-        #     w_bottom+a*dw = 1 * (((w_top-a*dw) > W_mesh[j]) & ((w_bottom+a*dw) < W_mesh[j]))
-            
-            # mask[j] = 1 * ((w_bottom-a*dw) > W_mesh[j])
+        # 下过渡区域
+        idx_lower = (W_mesh > W_bottom_low) & (W_mesh < W_bottom_high)
+        mask[idx_lower] = (W_mesh[idx_lower] - W_bottom_low[idx_lower]) / (2 * a * dw)
 
         return mask
+
     
     TD_mask = chi(a, U, W)
     if show_td_window:
-        plt.figure()
-        plt.imshow(TD_mask, cmap='gray')
-        plt.colorbar()
+        #plt.figure()
+        #plt.imshow(TD_mask, cmap='gray')
+        #plt.colorbar()
+        import tifffile
+        tifffile.imwrite('TD_mask.tif',TD_mask)
         # plt.show()
 
     sino_td_weighted = np.zeros_like(input_array)

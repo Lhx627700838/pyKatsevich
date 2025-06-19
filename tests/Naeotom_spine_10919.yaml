@@ -30,9 +30,11 @@ geometry:
       angles_range : 34.030
     options:
       detector_rebin_rows: 95
+    condition:
+      M : 95
 
 recon:
-  voxel_size: 0.5 # 0.32
+  voxel_size: 0.4 # 0.32
   rows: 512 # 54
   columns: 512 # 56
   slices: 512 # 58

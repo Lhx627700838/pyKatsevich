@@ -125,11 +125,11 @@ def generate_astra_geom(volume_shape, voxel_size, helical_scan_geom):
         s_max =  np.pi + astra_vol_geom['option']['WindowMaxZ'] / helical_scan_geom['helix']['pitch_mm_rad']
         s_len = s_max - s_min
 
-    projs_per_turn = helical_scan_geom['helix']["angles_count"] / s_len * 2*np.pi
+    projs_per_turn = helical_scan_geom['helix']["angles_count"] / (s_len / (2*np.pi))
     delta_s = 2 * np.pi / projs_per_turn
     angles = s_min + delta_s * (np.arange(helical_scan_geom['helix']["angles_count"], dtype=np.float32) + 0.5)
     stride_mm = helical_scan_geom['helix']['pitch_mm_rad'] * delta_s
-
+    
     views = astra_helical_views_uv(
         helical_scan_geom["SOD"],
         helical_scan_geom["SDD"],

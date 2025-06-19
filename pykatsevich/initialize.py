@@ -118,7 +118,8 @@ def create_configuration(
     helical_conf['pixel_span'] = helical_conf['detector_pixel_span_u']
     helical_conf['pixel_height'] = helical_conf['detector_pixel_span_v']
 
-    helical_conf['detector_rebin_rows'] = katsevich_options.get('detector_rebin_rows', 64) # The default value is 64
+    helical_conf['M'] = scan_geometry['condition']['M']
+    helical_conf['detector_rebin_rows'] = helical_conf['M'] # The default value is 64
     # print(f"detector_rebin_rows = {helical_conf['detector_rebin_rows']}")
 
     helical_conf['fov_diameter'] = max(helical_conf['x_len'], helical_conf['y_len'])
@@ -162,11 +163,15 @@ def create_configuration(
     # Tam-Danialsson boundaries, w_top and w_bottom, from Noo et al., Eq. (78):
     proj_row_mins = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
     proj_row_maxs =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+    
+    expandingfactor = 1
+    proj_row_mins = expandingfactor * proj_row_mins
+    proj_row_maxs = expandingfactor * proj_row_maxs
 
     helical_conf['proj_row_mins'] = proj_row_mins
     helical_conf['proj_row_maxs'] = proj_row_maxs
 
-    helical_conf['T-D smoothing'] = 0.025
+    helical_conf['T-D smoothing'] = 0.3
 
     rebin_row = np.zeros(shape=(helical_conf['detector rows'], helical_conf['detector cols']), dtype=np.int32)
     
