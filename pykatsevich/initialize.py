@@ -161,8 +161,8 @@ def create_configuration(
     helical_conf['proj_filter_width'] = helical_conf['detector cols']
 
     # Tam-Danialsson boundaries, w_top and w_bottom, from Noo et al., Eq. (78):
-    proj_row_mins = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
-    proj_row_maxs =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+    proj_row_maxs = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+    proj_row_mins =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
     
     expandingfactor = 1
     proj_row_mins = expandingfactor * proj_row_mins
@@ -171,7 +171,7 @@ def create_configuration(
     helical_conf['proj_row_mins'] = proj_row_mins
     helical_conf['proj_row_maxs'] = proj_row_maxs
 
-    helical_conf['T-D smoothing'] = 0.3
+    helical_conf['T-D smoothing'] = 0.6
 
     rebin_row = np.zeros(shape=(helical_conf['detector rows'], helical_conf['detector cols']), dtype=np.int32)
     

@@ -49,7 +49,12 @@ def test_pipeline(settings_file):
     phantom  = phantom_objects_3d(
         phantom_settings['rows'], phantom_settings['columns'], phantom_settings['slices'],
         voxel_size=voxel_size, objects_list=phantom_settings['objects'])
-
+    print(type(phantom))
+    print(np.shape(phantom))
+    import tifffile
+    outputphantom = np.transpose(phantom,(2,0,1))
+    outputphantom = outputphantom.astype(np.float32)
+    tifffile.imwrite('phantom.tif',outputphantom)
     geom = yaml_settings['geometry']
     
     import sys
@@ -103,7 +108,6 @@ def test_pipeline(settings_file):
     #     fig.colorbar(cs, ax=ax_array[0, i])
 
     # plt.show()
-    import tifffile
     tifffile.imwrite('recon.tif',rec_astra)
 
 if __name__=="__main__":
