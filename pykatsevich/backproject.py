@@ -12,9 +12,11 @@
 
 '''
 import numpy as np
+from pykatsevich.pi_line import find_pi_line_via_rin_rout
 def find_pi_line_range(x, y, z, lambdas, R, P):
-    lam_i = find_pi_line_through_point(x, y, z, R, P, lambdas)
-    lam_o = lam_i + np.pi
+    result = find_pi_line_via_rin_rout(x, y, z, R, P, lambdas)
+    lam_i = result["lambda_in"]
+    lam_o = result["lambda_out"]
     # Clip to available λ range
     lam_i = max(lambdas[0], lam_i)
     lam_o = min(lambdas[-1], lam_o)
@@ -23,39 +25,7 @@ def find_pi_line_range(x, y, z, lambdas, R, P):
     return valid_indices
 
 DEBUG = False
-def find_pi_line_through_point(x, y, z, R, P, lambda_array):
-    best_lambda = None
-    min_error = 1e10
-    print("finding pi line for:", x, y ,z)
-    count = 0
-    for lam_i in lambda_array:
-        lam_o = lam_i + np.pi
-        if lam_o > lambda_array[-1]:
-            break
-        
-        ai = np.array([R*np.cos(lam_i), R*np.sin(lam_i), P*lam_i/(2*np.pi)])
-        ao = np.array([R*np.cos(lam_o), R*np.sin(lam_o), P*lam_o/(2*np.pi)])
-        
-        v = ao - ai
-        p = np.array([x, y, z])
 
-        t = np.dot(p - ai, v) / np.dot(v, v)
-        if 0.0 <= t <= 1.0:
-            proj = ai + t * v
-            dist = np.linalg.norm(proj - p)
-            if dist < min_error:
-                min_error = dist
-                best_lambda = lam_i
-                best_ai = ai
-        count += 1
-        if DEBUG and count%10==0:
-            print("check line: ")
-            print("lam_i, ai - lam_o, ao:", lam_i, ai, lam_o, ao)
-            print("t for line:", t)
-            print("distance between line and point:", dist)
-    print("best_lambda lam_i, ai: ", best_lambda, best_ai)
-    print("min error: ", min_error)
-    return best_lambda #if min_error < 10.0 else None  # 用 1mm 容差限制
 
 def katsevich_backprojection_cpu(
     input_array,
