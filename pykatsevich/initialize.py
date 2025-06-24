@@ -171,7 +171,7 @@ def create_configuration(
     helical_conf['proj_row_mins'] = proj_row_mins
     helical_conf['proj_row_maxs'] = proj_row_maxs
 
-    helical_conf['T-D smoothing'] = 0.6
+    helical_conf['T-D smoothing'] = 0.005
 
     rebin_row = np.zeros(shape=(helical_conf['detector rows'], helical_conf['detector cols']), dtype=np.int32)
     

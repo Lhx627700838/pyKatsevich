@@ -24,9 +24,10 @@ geometry:
       detector psize u: 0.4 # 0.3125 # 0.625 # 
       detector psize v: 0.4
       detector rows : 144 #58
-      detector cols : 1376 # 64
+      detector cols : 256 # 64
+      alpha_m : 0.426235
     helix:
-      angles_count: 10919
+      angles_count: 2048
       pitch_mm_rad: -7.3273 # 6.4346 # pitch in mm per radian # 5.15 7.3273
       angles_range : 34.03 #34.030
       detector_rebin_rows: 95
@@ -35,17 +36,17 @@ geometry:
 
 phantom:
   voxel_size: 0.5 # 0.32
-  rows: 512 # 54
-  columns: 512 # 56
-  slices: 512 # 58
+  rows: 128 # 54
+  columns: 128 # 56
+  slices: 128 # 58
   objects:
     - type: sphere
-      R:    64
+      R:    16
       x_0:  0
       y_0:  0
       z_0:  0
     - type: cuboid
-      side: 30
-      x_0:  32
-      y_0:  64
-      z_0:  64
+      side: 8
+      x_0:  16
+      y_0:  16
+      z_0:  16
