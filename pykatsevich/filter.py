@@ -744,7 +744,7 @@ def filter_katsevich(
     if back_rebin_time:
         print(f"bhr Done in {t2-t1:.4f} seconds")
 
-    saveit = 0
+    saveit = 1
     if saveit == 1:    
         import tifffile
         tifffile.imwrite('filtered_proj1.tif',input_array)
@@ -1254,7 +1254,6 @@ def backproject_a(
     astra_bp_scaling = (delta_x**3) / ( ( pixel_size/ (sdd / sod) )**2 )
     # Add integration step to scaling:
     scale_coeff = astra_bp_scaling * conf['projs_per_turn']
-    
     range_object = tqdm(range(proj_geom['Vectors'].shape[0]), "Backprojection (Kernel)") if tqdm_imported and tqdm_bar else range(proj_geom['Vectors'].shape[0])
 
     for proj_angle in range_object:

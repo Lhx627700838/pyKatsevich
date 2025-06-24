@@ -108,6 +108,7 @@ def test_pipeline(settings_file):
     #     fig.colorbar(cs, ax=ax_array[0, i])
 
     # plt.show()
+    rec_astra = np.transpose(rec_astra,[2,1,0])
     tifffile.imwrite('recon.tif',rec_astra)
 
 if __name__=="__main__":
