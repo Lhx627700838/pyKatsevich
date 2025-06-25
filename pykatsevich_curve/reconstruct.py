@@ -17,7 +17,7 @@
 
 import numpy as np
 
-from .filter import filter_katsevich, sino_weight_td, backproject_a
+from pykatsevich_curve.filter import filter_katsevich, sino_weight_td, backproject_a
 from time import time
 
 def reconstruct(

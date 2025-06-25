@@ -55,17 +55,27 @@ def test_pipeline(settings_file):
     
 
 
-    sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\scan_001_flat_helix_projections.tif")
+    # sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\scan_001_flat_helix_projections.tif")
+    sinogram = tifffile.imread(r"D020_interpolated_Th1_3000_4000.tiff")
+    sinogram = sinogram.transpose(0, 2, 1)
+    print(sinogram.shape)
+    '''import matplotlib.pyplot as plt
+    plt.figure()
+    plt.imshow(sinogram[0,:,:], cmap='gray')
+    plt.show()'''
+    
+    angles_count = sinogram.shape[0]
     vol_geom, proj_geom,_ = generate_astra_geom(recon_shape, voxel_size, geom)
-
+    
     conf=create_configuration(
+        angles_count,
         geom,
         vol_geom,
         yaml_settings['geometry'].get('options', {})
     )
 
 
-    from pykatsevich.reconstruct import reconstruct
+    from pykatsevich_curve.reconstruct import reconstruct
 
     rec_astra = reconstruct(
         sinogram,
@@ -83,14 +93,14 @@ def test_pipeline(settings_file):
     print('done')
     tifffile.imwrite('recon.tif',rec_astra)
 
-def only_reconstruct_pipeline(settings_file):
+def only_reconstruct_pipeline_astra(settings_file):
     import yaml
     import os
     import astra
     import sys
     import tifffile
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from pykatsevich.initialize import create_configuration
+    from pykatsevich_curve.initialize import create_configuration
 
     try:
         test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -112,10 +122,95 @@ def only_reconstruct_pipeline(settings_file):
     voxel_size = recon['voxel_size']
     geom = yaml_settings['geometry']
     
-    filtered_sinogram = tifffile.imread(r"filtered_proj.tif")
+    filtered_projections = tifffile.imread(r"filtered_proj5.tif")
     vol_geom, proj_geom, lambda_list = generate_astra_geom(recon_shape, voxel_size, geom)
 
+    angles_count = filtered_projections.shape[0]
     conf=create_configuration(
+        angles_count,
+        geom,
+        vol_geom,
+        yaml_settings['geometry'].get('options', {})
+    )
+
+    from pykatsevich_curve.filter import sino_weight_td, backproject_a
+    sino_td = sino_weight_td(filtered_projections, conf, True)
+
+    verbosity_options = {
+            "Diff": {"Progress bar": True, "Print time": True},
+            "FwdRebin": {"Progress bar": True, "Print time": True},
+            "BackRebin": {"Progress bar": True, "Print time": True},
+            "BackProj": {"Progress bar": True, "Print time": True},
+        }
+    
+    import tifffile
+    tifffile.imwrite('filtered_proj6.tif',sino_td)
+    backproject_opts = verbosity_options.get("BackProj", {})
+    bp_tqdm_bar = backproject_opts.get("Progress bar", False)
+    bp_print_time = backproject_opts.get("Print time", False)
+
+    if bp_print_time and not bp_tqdm_bar:
+        print("Backprojection step", end="... ")
+
+    from time import time
+    t1 = time()
+    bp_astra = backproject_a(
+        sino_td,
+        conf,
+        vol_geom,
+        proj_geom,
+        tqdm_bar=bp_tqdm_bar
+    )
+    t2 = time()
+    if bp_print_time:
+        print(f"Done in {t2-t1:.4f} seconds")
+
+    clear_cupy_mempool=True
+    if clear_cupy_mempool:
+        import cupy as cp
+        mempool = cp.get_default_memory_pool()
+        pinned_mempool = cp.get_default_pinned_memory_pool()
+        mempool.free_all_blocks()
+        pinned_mempool.free_all_blocks()
+
+    print('done')
+    tifffile.imwrite('recon.tif',bp_astra)
+
+def only_reconstruct_pipeline(settings_file):
+    import yaml
+    import os
+    import astra
+    import sys
+    import tifffile
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from pykatsevich_curve.initialize import create_configuration
+
+    try:
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+    except:
+        print("Failed to get __file__, using current working directory instead")
+        test_dir = os.getcwd()
+
+    # 拼接 yaml 文件完整路径
+    yaml_path = os.path.join(test_dir, settings_file)
+
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f"配置文件未找到: {yaml_path}")
+
+    with open(yaml_path, "r") as file:
+        yaml_settings = yaml.safe_load(file)
+
+    recon = yaml_settings['recon']
+    recon_shape = (recon['rows'], recon['columns'], recon['slices']) 
+    voxel_size = recon['voxel_size']
+    geom = yaml_settings['geometry']
+    
+    filtered_sinogram = tifffile.imread(r"filtered_proj6.tif")
+    vol_geom, proj_geom, lambda_list = generate_astra_geom(recon_shape, voxel_size, geom)
+
+    angles_count = filtered_sinogram.shape[0]
+    conf=create_configuration(
+        angles_count,
         geom,
         vol_geom,
         yaml_settings['geometry'].get('options', {})

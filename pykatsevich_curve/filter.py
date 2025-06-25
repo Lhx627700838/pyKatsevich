@@ -56,32 +56,40 @@ def differentiate(sinogram, conf, tqdm_bar=False):
     d_alpha = conf['pixel_span']
     d_w = conf['pixel_height']
     alpha_coords = conf['col_coords'][:-1]  # alpha
-    row_coords = conf['row_coords']      # w
-    R0 = conf['R0']
-    SDD = conf['SDD']
+    row_coords = conf['row_coords'][:-1]   # w
+    R0 = conf['scan_radius']
+    SDD = conf['scan_diameter']
+
+    print('row_coords.shape', row_coords.shape)
+    print('col_coords.shape', alpha_coords.shape)
+    print('row coord: ')
+    print(row_coords)
+    print('col coord: ')
+    print(alpha_coords)
+    
 
     w = np.array(row_coords).reshape(-1, 1)          # shape: [N_w, 1]
-    row_sqr = np.zeros_like(sinogram[0, :-1, :])
-    row_transposed = np.zeros_like(row_coords)
-    row_transposed += row_coords
-    row_sqr += row_transposed ** 2
+    row_sqr = np.zeros_like(sinogram[0, :, :-1])
+    row_sqr += row_coords[:, np.newaxis] ** 2
+    #print('row_sqr.shape', row_sqr.shape)
 
     output_array = np.zeros_like(sinogram)
 
     range_obj = tqdm(range(sinogram.shape[0] - 1), desc="CF1 curved detector") if tqdm_imported and tqdm_bar else range(sinogram.shape[0] - 1)
 
     for k in range_obj:
-        # central finite differences over λ, α, w
-        # [2016, 1376, 144]
-        d_proj_term = (sinogram[k+1, :-1, :] - sinogram[k, :-1, :] +
-                  sinogram[k+1, 1:, :] - sinogram[k, 1:, :]) / (2 * delta_s)
+        # central finite differences over λ, w, α
+        # [2016, 144, 1376]
+        d_proj_term = (sinogram[k+1, :, :-1] - sinogram[k, :, :-1] +
+                  sinogram[k+1, :, 1:] - sinogram[k, :, 1:]) / (2 * delta_s)
 
-        d_alpha_term = (sinogram[k, 1:, :] - sinogram[k, :-1, :] +
-                        sinogram[k+1, 1:, :] - sinogram[k+1, :-1, :]) / (2 * d_alpha)
+        d_alpha_term = (sinogram[k, :, 1:] - sinogram[k, :, :-1] +
+                        sinogram[k+1, :, 1:] - sinogram[k+1, :, :-1]) / (2 * d_alpha)
 
 
         term = d_proj_term + d_alpha_term
-        output_array[k, :-1, :] = term * SDD / np.sqrt(SDD**2 + row_sqr)
+        #('term shape', term.shape)
+        output_array[k, :, :-1] = term * SDD / np.sqrt(SDD**2 + row_sqr)
 
     return output_array
 
@@ -115,12 +123,12 @@ def fw_Kcurve_rebinning(input_array, conf):
     psi_list = np.linspace(-np.pi/2 - alpha_m, np.pi/2 + alpha_m, M)
     detector_rebin_rows= M
     output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=np.float32)
-    wk_index_map = np.zeros((2 * M + 1, detector_columns), dtype=np.float32)
+    wk_index_map = np.zeros((M, detector_columns), dtype=np.float32)
     print('output_array.shape',output_array.shape)
     # ==== 计算 wk_index_map，只执行一次 ====
     tan_psi = np.tan(psi_list)
     tan_psi[np.abs(tan_psi) < 1e-6] = 1e-6  # 避免除0
-    term = psi_list * psi_list/ tan_psi
+    term = psi_list/ tan_psi
 
     for col in range(detector_columns):
         alpha = detector_columns_coordinate[col]
@@ -149,9 +157,9 @@ def fw_Kcurve_rebinning_fast(input_array, conf, M=47):
     import numpy as np
 
     # === 读取配置 ===
-    D = conf['scan_radius']
+    D = conf['scan_diameter']
     P = conf['progress_per_turn']
-    R0 = conf['scan_diameter']
+    R0 = conf['scan_radius']
     pixel_height = conf['pixel_height']
     detector_rows = conf['detector rows']
     detector_columns = conf['detector cols']
@@ -202,21 +210,26 @@ def fw_Kcurve_rebinning_fast(input_array, conf, M=47):
 
 
 import numpy as np
-from scipy.signal import convolve
-def hilbert_filter_along_alpha(g3, d_alpha, kernel_radius = 128):
+from scipy.signal import convolve, fftconvolve
+from tqdm import tqdm
+def hilbert_filter_along_alpha(g3, d_alpha, kernel_radius = 128, conf=None):
     """
     Apply 1D Hilbert transform along α (axis=1) to g3: [n_lambda, n_alpha, n_psi]
     Returns g4 of same shape.
     """
-    n_lambda, n_alpha, n_psi = g3.shape
+    detector_columns = conf['detector cols']
+    n_lambda, n_psi, n_alpha = g3.shape
     g4 = np.zeros_like(g3, dtype=np.float32)
-    N = 2 * kernel_radius + 1  # total length
-    H = compute_hilbert_kernel(N=N, d_alpha=d_alpha, apodization='cos2')
+    kernel_radius = int(n_alpha/2)
+    H = compute_hilbert_kernel(N=kernel_radius, d_alpha=d_alpha, apodization='hanning')
+    #H = classic_hilbert_kernel(N=kernel_radius)
 
     # Loop over λ and ψ, apply FFT-based Hilbert filtering
-    for l in range(n_lambda):
+    for l in tqdm(range(n_lambda)):
         for p in range(n_psi):
-            g4[l, :, p] = convolve(g3[l, p, :], H, mode='full')
+            filtered = fftconvolve(g3[l, p, :], H, mode='full')
+            start = (len(filtered) - n_alpha) // 2
+            g4[l, p, :] = filtered[start:start + n_alpha]
             # 取中心部分
             #output_array[proj, rebin_row, :] = filtered[detector_columns - 1:2 * detector_columns - 1]
     return g4
@@ -225,7 +238,7 @@ def hilbert_filter_along_alpha(g3, d_alpha, kernel_radius = 128):
 import numpy as np
 from scipy.integrate import quad
 
-def compute_hilbert_kernel(N, d_alpha, apodization='cos2'):
+def compute_hilbert_kernel(N, d_alpha, apodization='hanning'):
     """
     Construct discrete Hilbert kernel H[n] for alpha filtering.
     Parameters:
@@ -247,16 +260,42 @@ def compute_hilbert_kernel(N, d_alpha, apodization='cos2'):
         sinc = angle / np.sin(angle)
 
         # Define apodization-integrated function
-        def integrand(u):
-            if apodization == 'cos2':
-                return np.sin(np.pi * t * u) * np.cos(np.pi * u / 2) ** 2
-            else:  # No apodization
-                return np.sin(np.pi * t * u)
+        if apodization == 'hanning':
+            if t == 0:
+                integral = 0.0
+            else:
+                A = (1 - np.cos(np.pi * t)) / (np.pi * t)
 
-        integral, _ = quad(integrand, 0, 1)
+                # 避免除以0
+                if t == -1 or t == 1:
+                    B1 = 0.0
+                    B2 = 0.0
+                else:
+                    B1 = (1 - np.cos(np.pi * (t + 1))) / (np.pi * (t + 1))
+                    B2 = (1 - np.cos(np.pi * (t - 1))) / (np.pi * (t - 1))
+
+                integral = 0.5 * A + 0.25 * (B1 + B2)
+        else:  # No apodization
+            integral = 1/(np.pi * t) * (1-np.cos(np.pi * t))
+
         H[idx] = sinc * integral
 
     return H
+
+def classic_hilbert_kernel(N, apodization = 'hanning'):
+    H = np.zeros(2*N+1)
+    t = np.arange(-N, N+1)
+    for i, n in enumerate(t):
+        if n == 0:
+            H[i] = 0
+        else:
+            H[i] = 2 / (np.pi * n)  # 标准离散Hilbert核
+    # 加一个 Hamming window 可选
+    if apodization == 'hanning':
+        window = np.hanning(2*N+1)
+        return H * window
+    else:
+        return H
 
 def hilbert_conv_gpu(input_array, hilbert_array, conf):
     import cupy as cp
@@ -607,10 +646,12 @@ def filter_katsevich(
     t2 = time()
     if fwd_rebin_time:
         print(f"fhr Done in {t2-t1:.4f} seconds")
+    print("rebinning mapping list: ", wk_index_map.shape)
+    print(wk_index_map)
 
     d_alpha = conf['pixel_span']
     kernel_radius = conf['kernel_radius']
-    sino_hilbert_trans = hilbert_filter_along_alpha(fwd_rebin_array,d_alpha,kernel_radius)
+    sino_hilbert_trans = hilbert_filter_along_alpha(fwd_rebin_array,d_alpha,kernel_radius,conf)
     
     #sino_hilbert_trans_gpu = hilbert_conv_gpu_batched(fwd_rebin_array,hilbert_array,conf,batch_size=200,gpu_id=0)
     #print("Max diff:", np.max(np.abs(sino_hilbert_trans - sino_hilbert_trans_gpu)))
@@ -629,7 +670,7 @@ def filter_katsevich(
     if back_rebin_time:
         print(f"bhr Done in {t2-t1:.4f} seconds")
 
-    saveit = 0
+    saveit = 1
     if saveit == 1:    
         import tifffile
         tifffile.imwrite('filtered_proj1.tif',input_array)

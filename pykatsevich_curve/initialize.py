@@ -18,6 +18,7 @@
 import numpy as np
 
 def create_configuration(
+    angles_count: int,
     scan_geometry : dict,
     astra_volume_geometry : dict,
     katsevich_options: dict={}
@@ -57,7 +58,7 @@ def create_configuration(
     # Configure specific geometry parameters useful for Katsevish filter:
     helical_conf = {}
 
-    helical_conf['total_projs'] = scan_geometry['helix']['angles_count']
+    helical_conf['total_projs'] = angles_count # scan_geometry['helix']['angles_count']
 
     helical_conf['x_max'] = astra_volume_geometry['option']['WindowMaxX']
     helical_conf['x_min'] = astra_volume_geometry['option']['WindowMinX']
@@ -160,9 +161,17 @@ def create_configuration(
     helical_conf['kernel_width'] = 1 + 2 * helical_conf['kernel_radius']
     helical_conf['proj_filter_width'] = helical_conf['detector cols']
 
-    # Tam-Danialsson boundaries, w_top and w_bottom, from Noo et al., Eq. (78):
-    proj_row_maxs = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
-    proj_row_mins =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+    # Tam-Danialsson boundaries, w_top and w_bottom, from Noo et al., Eq. (36) for curved detector:
+
+    alpha_coords = helical_conf['col_coords']  # 单位为弧度
+    D = helical_conf['scan_diameter']      # 半径（如果你用的是直径）
+    P = helical_conf['progress_per_turn']
+    R0 = helical_conf['scan_radius']
+
+    # Eq. (36) - curved detector upper/lower bounds
+    proj_row_maxs = (D * abs(P)) / (2 * np.pi * R0) * (np.pi / 2 - alpha_coords) / np.cos(alpha_coords)
+    proj_row_mins = -(D * abs(P)) / (2 * np.pi * R0) * (np.pi / 2 + alpha_coords) / np.cos(alpha_coords)
+
     
     expandingfactor = 1
     proj_row_mins = expandingfactor * proj_row_mins
