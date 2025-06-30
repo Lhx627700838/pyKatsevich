@@ -21,8 +21,6 @@ geometry:
     SDD: 80
     detector:
       detector psize: 0.15625 # 0.078125
-      detector psize u: 0.15625
-      detector psize v: 0.15625
       detector rows : 256 # 512
       detector cols : 256 # 512
     helix:

@@ -78,7 +78,7 @@ def differentiate(
     row_sqr = np.zeros_like(sinogram[0, :-1, :-1])
     row_sqr += row_transposed ** 2
 
-    range_object = tqdm(range(0, sinogram.shape[0]-1), "Derivatives   ") if tqdm_imported and tqdm_bar else range(0, sinogram.shape[0]-1)
+    range_object = tqdm(range(0, sinogram.shape[0]-1), "Derivatives   ")
 
     for proj_index in range_object:
         proj = proj_index - 0 # Since the original code works with data chunks, "- 0" remains here, where "0" is the hardcoded value of the first projection index
@@ -217,9 +217,9 @@ def fw_Kcurve_rebinning(input_array, conf):
     import numpy as np
     from tqdm import tqdm
 
-    D = conf['scan_diameter']
+    D = conf['scan_diameter'] # SDD
     P = conf['progress_per_turn']
-    R0 = conf['scan_radius']
+    R0 = conf['scan_radius'] #
     pixel_height = conf['pixel_height']
     detector_columns_coordinate = conf['col_coords']
     detector_rows = conf['detector rows']
@@ -230,11 +230,11 @@ def fw_Kcurve_rebinning(input_array, conf):
 
     alpha_m = 0.426235
     M = conf['M']
-    psi_list = np.linspace(-np.pi/2 - alpha_m, np.pi/2 + alpha_m, M)
+    psi_list = 1*np.linspace(-np.pi/2 - alpha_m, np.pi/2 + alpha_m, M)
     detector_rebin_rows= M
     output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=np.float32)
-    wk_index_map = np.zeros((2 * M + 1, detector_columns), dtype=np.float32)
-    print('output_array.shape',output_array.shape)
+    wk_index_map = np.zeros((M, detector_columns), dtype=np.float32)
+
     # ==== 计算 wk_index_map，只执行一次 ====
     tan_psi = np.tan(psi_list)
     tan_psi[np.abs(tan_psi) < 1e-6] = 1e-6  # 避免除0
@@ -242,7 +242,7 @@ def fw_Kcurve_rebinning(input_array, conf):
 
     for col in range(detector_columns):
         u = detector_columns_coordinate[col]
-        w_k = -1*(D * P / (2 * np.pi * R0)) * (psi_list + term * (u / D))
+        w_k = 1*(D * P / (2 * np.pi * R0)) * (psi_list + term * (u / D))
         w_k_index = w_k / pixel_height + 0.5 * detector_rows - detector_row_offset
         w_k_index = np.clip(w_k_index, 0.0, detector_rows - 2.001)  # 保证 idx_floor+1 不越界
 
@@ -256,7 +256,7 @@ def fw_Kcurve_rebinning(input_array, conf):
     for proj in tqdm(range(input_array.shape[0]), "Forward rebin."):
         data = input_array[proj]  # shape: (detector_rows, detector_cols)
         for col in range(detector_columns):
-            floor_idx = idx_floor[:, col] 
+            floor_idx = idx_floor[:, col]
             f = frac[:, col]
             output_array[proj, :, col] = (1 - f) * data[floor_idx, col] + f * data[floor_idx + 1, col]
 
@@ -707,6 +707,7 @@ def filter_katsevich(
     if diff_print_time and not diff_tqdm_bar:
         print("Derivative at constant direction step", end="... ")
     t1 = time()
+    
     diff_proj = differentiate(input_array, conf, diff_tqdm_bar)
     t2 = time()
     if diff_print_time:
@@ -744,14 +745,14 @@ def filter_katsevich(
     if back_rebin_time:
         print(f"bhr Done in {t2-t1:.4f} seconds")
 
-    saveit = 0
+    saveit = 1
     if saveit == 1:    
         import tifffile
-        tifffile.imwrite('filtered_proj1.tif',input_array)
-        tifffile.imwrite('filtered_proj2.tif',diff_proj)
-        tifffile.imwrite('filtered_proj3.tif',fwd_rebin_array)
-        tifffile.imwrite('filtered_proj4.tif',sino_hilbert_trans)
-        tifffile.imwrite('filtered_proj5.tif',filtered_projections)
+        tifffile.imwrite('filtered_proj1.tif', input_array.astype(np.float32))
+        tifffile.imwrite('filtered_proj2.tif', diff_proj.astype(np.float32))
+        tifffile.imwrite('filtered_proj3.tif', fwd_rebin_array.astype(np.float32))
+        tifffile.imwrite('filtered_proj4.tif', sino_hilbert_trans.astype(np.float32))
+        tifffile.imwrite('filtered_proj5.tif', filtered_projections.astype(np.float32))
     return filtered_projections
 
 def flat_backproject_chunk(
@@ -1163,7 +1164,7 @@ def backproject_a(
         tqdm_imported = True
     except:
         tqdm_imported = False
-    ### 1. 前期准备：输入和 ASTRA 几何设置
+
     x_voxels = conf['x_voxels']
     y_voxels = conf['y_voxels']
     x_min = conf['x_min']
@@ -1173,9 +1174,7 @@ def backproject_a(
 
     scan_radius = conf['scan_radius']
     source_pos = conf['source_pos']
-    ### 2. 核心部分：自定义 CUDA kernel：scale_integrate_kernel
-    ### 针对每个体素 (X,Y)，根据当前角度计算源点在 detector 上的投影距离 v*
-    ### 这相当于 Katsevich 公式中的加权项 
+
     scale_integrate_kernel = cp.RawKernel(r'''
     extern "C" __global__
     void scale_integrate_cu(float* bp_volume, float *rec_volume, float xsize, float xmin, float ysize, float ymin, float angle, float scan_radius, float scale_const, uint3 vol_dims) {
@@ -1256,9 +1255,8 @@ def backproject_a(
     astra_bp_scaling = (delta_x**3) / ( ( pixel_size/ (sdd / sod) )**2 )
     # Add integration step to scaling:
     scale_coeff = astra_bp_scaling * conf['projs_per_turn']
-    
     range_object = tqdm(range(proj_geom['Vectors'].shape[0]), "Backprojection (Kernel)") if tqdm_imported and tqdm_bar else range(proj_geom['Vectors'].shape[0])
-    ### 3. 主循环：对每个投影角度做一次加权反投影
+
     for proj_angle in range_object:
 
         proj_geom_view = astra.create_proj_geom(

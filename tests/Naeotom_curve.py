@@ -18,11 +18,12 @@
 """
 This test runs ASTRA's backprojection on filtered sinogram.
 """
+import numpy as np
 def test_pipeline(settings_file):
 
     from tests.common import phantom_objects_3d, project, animate_volume, backproject
 
-    import numpy as np
+    
     from matplotlib import pyplot as plt
     from time import time
     import yaml
@@ -93,6 +94,7 @@ def test_pipeline(settings_file):
     print('done')
     tifffile.imwrite('recon.tif',rec_astra)
 
+import numpy as np
 def only_reconstruct_pipeline_astra(settings_file):
     import yaml
     import os
@@ -123,6 +125,7 @@ def only_reconstruct_pipeline_astra(settings_file):
     geom = yaml_settings['geometry']
     
     filtered_projections = tifffile.imread(r"filtered_proj5.tif")
+    print('input shape: ', filtered_projections.shape)
     vol_geom, proj_geom, lambda_list = generate_astra_geom(recon_shape, voxel_size, geom)
 
     angles_count = filtered_projections.shape[0]
@@ -136,6 +139,12 @@ def only_reconstruct_pipeline_astra(settings_file):
     from pykatsevich_curve.filter import sino_weight_td, backproject_a
     sino_td = sino_weight_td(filtered_projections, conf, True)
 
+    flip=False
+    if flip:
+        print('flip vertically')
+        import numpy as np
+        sino_td = np.flip(sino_td, axis=1)  # 沿第1维翻转（144这个维度）
+
     verbosity_options = {
             "Diff": {"Progress bar": True, "Print time": True},
             "FwdRebin": {"Progress bar": True, "Print time": True},
@@ -144,7 +153,9 @@ def only_reconstruct_pipeline_astra(settings_file):
         }
     
     import tifffile
-    tifffile.imwrite('filtered_proj6.tif',sino_td)
+    write_proj6 = False
+    if write_proj6:
+        tifffile.imwrite('filtered_proj6.tif',sino_td)
     backproject_opts = verbosity_options.get("BackProj", {})
     bp_tqdm_bar = backproject_opts.get("Progress bar", False)
     bp_print_time = backproject_opts.get("Print time", False)
@@ -154,13 +165,47 @@ def only_reconstruct_pipeline_astra(settings_file):
 
     from time import time
     t1 = time()
-    bp_astra = backproject_a(
+    '''bp_astra = backproject_a(
         sino_td,
         conf,
         vol_geom,
         proj_geom,
         tqdm_bar=bp_tqdm_bar
-    )
+    )'''
+    from pykatsevich_curve.backprojection import katsevich_backprojection_curved
+    from pykatsevich_curve.backprojection_gpu import katsevich_backprojection_curved_gpu
+    import numpy as np
+
+    # 设置体素空间大小与分辨率
+    Nx, Ny, Nz = 128, 128, 128         # 体素数
+    dx, dy, dz = 4.0, 4.0, 4.0         # 每个体素的尺寸（单位 mm）
+
+    #Nx, Ny, Nz = 512, 512, 128         # 体素数
+    #dx, dy, dz = 1.0, 1.0, 4.0         # 每个体素的尺寸（单位 mm）
+
+    # 定义中心坐标位置
+    x_center, y_center, z_center = 0.0, 0.0, 0.0
+
+    # 创建物理坐标范围
+    x = np.linspace(-(Nx // 2) * dx + x_center, (Nx // 2 - 1) * dx + x_center, Nx)
+    y = np.linspace(-(Ny // 2) * dy + y_center, (Ny // 2 - 1) * dy + y_center, Ny)
+    z = np.linspace(-(Nz // 2) * dz + z_center, (Nz // 2 - 1) * dz + z_center, Nz)
+
+    # 构建 3D 网格
+    x_grid_fake, y_grid_fake, z_grid = np.meshgrid(x, y, z, indexing='ij')  # shape: (Nx, Ny, Nz)
+
+    x_grid = y_grid_fake
+    y_grid = -1 * x_grid_fake
+    
+    lambdas = conf['source_pos']
+    R0 = conf['scan_radius']
+    D = conf['scan_diameter'] 
+    P = conf['progress_per_turn']
+    d_alpha = conf['detector_pixel_span_u']
+    d_w = conf['detector_pixel_span_v']
+
+    print(conf['projs_per_turn'])
+    bp_astra = katsevich_backprojection_curved_gpu(sino_td, lambdas, x_grid, y_grid, z_grid, R0, D, P, d_alpha, d_w)
     t2 = time()
     if bp_print_time:
         print(f"Done in {t2-t1:.4f} seconds")

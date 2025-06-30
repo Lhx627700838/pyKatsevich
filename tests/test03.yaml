@@ -20,18 +20,19 @@ geometry:
     SOD: 610
     SDD: 1113
     detector:
-      detector psize: 0.4
-      detector psize u: 0.4 # 0.3125 # 0.625 # 
-      detector psize v: 0.4
+      detector psize u: 0.689741074909091 # 0.3125 # 0.625 # 
+      detector psize v: 0.4008525174825175
       detector rows : 144 #58
       detector cols : 1376 # 64
+      alpha_m : 0.426235
     helix:
-      angles_count: 10919
-      pitch_mm_rad: -7.3273 # 6.4346 # pitch in mm per radian # 5.15 7.3273
+      angles_count: 1024
+      pitch_mm_rad: 7.3273 # 6.4346 # pitch in mm per radian # 5.15 7.3273
       angles_range : 34.03 #34.030
-      detector_rebin_rows: 95
     condition:
-      M : 95
+      M : 309
+    T-D smoothing:
+      factor : 5
 
 phantom:
   voxel_size: 0.5 # 0.32
@@ -45,7 +46,7 @@ phantom:
       y_0:  0
       z_0:  0
     - type: cuboid
-      side: 30
-      x_0:  32
+      side: 32
+      x_0:  64
       y_0:  64
       z_0:  64

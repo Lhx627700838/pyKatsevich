@@ -132,8 +132,8 @@ def fw_Kcurve_rebinning(input_array, conf):
 
     for col in range(detector_columns):
         alpha = detector_columns_coordinate[col]
-        w_k = -1*(D * P / (2 * np.pi * R0)) * (psi_list * np.cos(alpha) + term * np.sin(alpha))
-        w_k_index = w_k / pixel_height + 0.5 * detector_rows - detector_row_offset
+        w_k = (D * P / (2 * np.pi * R0)) * (psi_list * np.cos(alpha) + term * np.sin(alpha))
+        w_k_index = -1*w_k / pixel_height + 0.5 * detector_rows - detector_row_offset
         w_k_index = np.clip(w_k_index, 0.0, detector_rows - 2.001)  # 保证 idx_floor+1 不越界
 
         wk_index_map[:, col] = w_k_index

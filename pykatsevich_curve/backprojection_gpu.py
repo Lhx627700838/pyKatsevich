@@ -1,0 +1,73 @@
+import cupy as cp
+from tqdm import tqdm
+#import pudb; pudb.set_trace()
+import pdb
+def katsevich_backprojection_curved_gpu(
+    g_filtered, lambdas, x_grid, y_grid, z_grid, R0, D, P, d_alpha, d_w, lambda0=0, z0=0
+):
+    # 将数据转为 GPU 张量
+    g_filtered = cp.asarray(g_filtered)
+    lambdas = cp.asarray(lambdas)
+    x_grid = cp.asarray(x_grid)
+    y_grid = cp.asarray(y_grid)
+    z_grid = cp.asarray(z_grid)
+    
+    #d_alpha = cp.asarray(d_alpha)
+
+    f = cp.zeros_like(x_grid)
+    d_lambda = cp.abs(lambdas[1] - lambdas[0])
+    N_lambda = len(lambdas)
+
+    N_alpha = g_filtered.shape[1]
+    N_w = g_filtered.shape[2]
+    alpha_max = cp.pi / 2
+    w_max = D
+
+    print("g_filtered.shape", g_filtered.shape)
+    print('d_alpha:', d_alpha)
+    print('P:', P)
+    #P = -1 * P
+    print('z_grid')
+    print(z_grid)
+
+    print('lambdas')
+    print(lambdas)
+
+    # should take 0 for point out of border
+    # z direction should be checked
+    for i in tqdm(range(N_lambda), desc="GPU backprojection"):
+        lam = lambdas[i]
+        
+        phi = lam + lambda0
+        phi *= -1 # lambda increases counterclockwise so should multiply -1
+        cos_phi = cp.cos(phi)
+        sin_phi = cp.sin(phi)
+
+        v_star = R0 - x_grid * cos_phi - y_grid * sin_phi
+        alpha_star = cp.arctan((1.0 / v_star) * (-x_grid * sin_phi + y_grid * cos_phi))
+        w_star = D * cp.cos(alpha_star) / v_star * (z_grid - z0 - P * phi / (2 * cp.pi))
+        
+        alpha_idx = (alpha_star/d_alpha + N_alpha/2).astype(cp.int32)
+        w_idx = (-1*w_star/d_w + N_w/2).astype(cp.int32)
+
+        # pdb.set_trace() # p x_grid[:,:,0] p y_grid[:,:,0]
+        # 创建合法索引的掩码 
+        valid_mask = (
+            (alpha_idx >= 0) & (alpha_idx < N_alpha) &
+            (w_idx >= 0) & (w_idx < N_w)
+        )
+
+        # 初始化采样值为0
+        g_sample = cp.zeros_like(v_star)
+
+        # 对合法位置采样
+        g_sample[valid_mask] = g_filtered[i, w_idx[valid_mask], alpha_idx[valid_mask]]
+
+        # 加权积分
+        f += (g_sample / v_star) * d_lambda
+
+        #print("v_star.shape, alpha_star.shape, w_star.shape",v_star.shape, alpha_star.shape, w_star.shape)
+        #print('valid_mask.shape', valid_mask.shape)
+        #print('f.shape', f.shape)
+
+    return cp.asnumpy(f / (2 * cp.pi))

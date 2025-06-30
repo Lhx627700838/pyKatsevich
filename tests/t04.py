@@ -30,6 +30,8 @@ def test_pipeline(settings_file):
     import astra
     from skimage.data import shepp_logan_phantom
     from skimage.transform import resize
+    import tifffile
+
     try:
         test_dir = os.path.dirname(os.path.abspath(__file__))
     except:
@@ -47,19 +49,20 @@ def test_pipeline(settings_file):
     phantom_settings = yaml_settings['phantom']
     print(f"Generating the volume with the following objects: {phantom_settings['objects']}")
     voxel_size = phantom_settings['voxel_size']
-    vol_dim = (phantom_settings['slices'],phantom_settings['rows'], phantom_settings['columns'])  # (Z, Y, X)
-    phantom  = phantom_objects_3d(phantom_settings['rows'], phantom_settings['columns'], phantom_settings['slices'],voxel_size=voxel_size, objects_list=phantom_settings['objects'])
-    print('phantom size',np.shape(phantom))
-    
-    # 构建 2D phantom
-    phantom2d = shepp_logan_phantom()
-    phantom2d_resized = resize(phantom2d, (vol_dim[1], vol_dim[2]), mode='reflect', anti_aliasing=True)
+    # vol_dim = (128, 256, 256)  # (Z, Y, X)
 
-    # 沿 Z 轴堆叠成 3D
-    phantom3d = np.stack([phantom2d_resized] * vol_dim[0], axis=0)  # shape: (128, 128, 128)
-    import tifffile
+    # # 构建 2D phantom
+    # phantom2d = shepp_logan_phantom()
+    # phantom2d_resized = resize(phantom2d, (vol_dim[1], vol_dim[2]), mode='reflect', anti_aliasing=True)
+
+    # # 沿 Z 轴堆叠成 3D
+    # phantom3d = np.stack([phantom2d_resized] * vol_dim[0], axis=0)  # shape: (128, 128, 128)
+    phantom3d = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\cat_simens.tif")
+    print(type(phantom3d))
+    print(np.shape(phantom3d))
     
-    tifffile.imwrite('phantom.tif', phantom3d.astype(np.float32))
+    outputphantom = phantom3d.astype(np.float32)
+    tifffile.imwrite('phantom.tif',outputphantom)
     geom = yaml_settings['geometry']
     
     import sys
@@ -68,7 +71,7 @@ def test_pipeline(settings_file):
 
     print("Projecting the phantom", end='...')
     phantom3d = phantom3d.transpose([2,1,0])
-    sinogram, vol_geom, proj_geom = project(phantom, voxel_size, geom)
+    sinogram, vol_geom, proj_geom = project(phantom3d, voxel_size, geom)
     print("Done")
 
     conf=create_configuration(
@@ -76,8 +79,8 @@ def test_pipeline(settings_file):
         vol_geom,
         yaml_settings['geometry'].get('options', {})
     )
-
-    sinogram_swapped = np.asarray(np.swapaxes(sinogram, 0, 1), order='C')
+    print(np.shape(sinogram))
+    sinogram_swapped = sinogram.transpose([1,0,2])
 
     # plt.figure()
     # plt.imshow(sinogram_swapped[sinogram_swapped.shape[0] // 2], cmap='gray')
@@ -114,9 +117,10 @@ def test_pipeline(settings_file):
     #     fig.colorbar(cs, ax=ax_array[0, i])
 
     # plt.show()
+    print(np.shape(rec_astra))
     rec_astra = np.transpose(rec_astra,[2,1,0])
-    tifffile.imwrite('recon.tif',rec_astra)
+    tifffile.imwrite('recon_simcat.tif',rec_astra)
 
 if __name__=="__main__":
-    yaml_settings_file = "test03.yaml"
+    yaml_settings_file = "test04.yaml"
     test_pipeline(yaml_settings_file)

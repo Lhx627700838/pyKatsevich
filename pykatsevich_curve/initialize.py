@@ -89,7 +89,9 @@ def create_configuration(
     helical_conf['scan_radius'] = scan_geometry["SOD"] # Used to be (which is incorrect): 0.5 * helical_conf['scan_diameter']
     
     if "angles_range" in scan_geometry['helix'].keys():
-        helical_conf['s_len'] = scan_geometry['helix']['angles_range']
+        helical_conf['s_len'] = angles_count/2016*2*np.pi
+        print("lambda angles count", angles_count)
+        print("lambda angles range", helical_conf['s_len'])
         helical_conf['s_min'] = -helical_conf['s_len'] * 0.5
         helical_conf['s_max'] =  helical_conf['s_len'] * 0.5
     else:
