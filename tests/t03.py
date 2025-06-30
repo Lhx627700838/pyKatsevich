@@ -20,8 +20,8 @@ This test runs ASTRA's backprojection on filtered sinogram.
 """
 def test_pipeline(settings_file):
 
-    from common import phantom_objects_3d, project, animate_volume, backproject
-
+    from tests.common import phantom_objects_3d, project, animate_volume, backproject
+    import tifffile
     import numpy as np
     from matplotlib import pyplot as plt
     from time import time
@@ -30,6 +30,7 @@ def test_pipeline(settings_file):
     import astra
     from skimage.data import shepp_logan_phantom
     from skimage.transform import resize
+    import pdb
     try:
         test_dir = os.path.dirname(os.path.abspath(__file__))
     except:
@@ -50,34 +51,43 @@ def test_pipeline(settings_file):
     vol_dim = (phantom_settings['slices'],phantom_settings['rows'], phantom_settings['columns'])  # (Z, Y, X)
     phantom  = phantom_objects_3d(phantom_settings['rows'], phantom_settings['columns'], phantom_settings['slices'],voxel_size=voxel_size, objects_list=phantom_settings['objects'])
     print('phantom size',np.shape(phantom))
-    
-    # 构建 2D phantom
-    phantom2d = shepp_logan_phantom()
-    phantom2d_resized = resize(phantom2d, (vol_dim[1], vol_dim[2]), mode='reflect', anti_aliasing=True)
+    # tifffile.imwrite('phantom_sphere.tif', phantom.astype(np.float32))
 
-    # 沿 Z 轴堆叠成 3D
-    phantom3d = np.stack([phantom2d_resized] * vol_dim[0], axis=0)  # shape: (128, 128, 128)
-    import tifffile
-    
-    tifffile.imwrite('phantom.tif', phantom3d.astype(np.float32))
+    phantom_shepp = False
+    if phantom_shepp:
+        # 构建 2D phantom
+        phantom2d = shepp_logan_phantom()
+        phantom2d_resized = resize(phantom2d, (vol_dim[1], vol_dim[2]), mode='reflect', anti_aliasing=True)
+
+        # 沿 Z 轴堆叠成 3D
+        phantom3d = np.stack([phantom2d_resized] * vol_dim[0], axis=0)  # shape: (128, 128, 128)
+        
+        
+        tifffile.imwrite('phantom.tif', phantom3d.astype(np.float32))
+        phantom3d = phantom3d.transpose([2,1,0])
+
     geom = yaml_settings['geometry']
-    
     import sys
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from pykatsevich.initialize import create_configuration
 
     print("Projecting the phantom", end='...')
-    phantom3d = phantom3d.transpose([2,1,0])
+    
     sinogram, vol_geom, proj_geom = project(phantom, voxel_size, geom)
+    sinogram_swapped = np.asarray(np.swapaxes(sinogram, 0, 1), order='C')
+    print("sinogram shape:", sinogram.shape)
+    print("sinogram_swapped shape:", sinogram_swapped.shape)
+    
     print("Done")
-
+    tifffile.imwrite('phantom_sphere_sinogram.tif', sinogram_swapped.astype(np.float32))
+    #pdb.set_trace()
     conf=create_configuration(
         geom,
         vol_geom,
         yaml_settings['geometry'].get('options', {})
     )
 
-    sinogram_swapped = np.asarray(np.swapaxes(sinogram, 0, 1), order='C')
+    
 
     # plt.figure()
     # plt.imshow(sinogram_swapped[sinogram_swapped.shape[0] // 2], cmap='gray')

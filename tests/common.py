@@ -26,6 +26,7 @@ def phantom_objects_3d(
     Generate the phantom with +X along columns, +Y along slices, +Z along rows.
     """
     import numpy as np
+    import pdb
     def in_sphere(x, y, z, R,
                   x_0=0.0,
                   y_0=0.0,
@@ -115,7 +116,7 @@ def project(
     """
     import numpy as np
     import astra
-    from pykatsevich.geometry import astra_helical_views
+    from pykatsevich.geometry import astra_helical_views_uv
 
     astra_vol_geom = astra.create_vol_geom(
         volume.shape[0],  # rows - Y
@@ -149,10 +150,11 @@ def project(
 
     stride_mm = helical_scan_geom['helix']['pitch_mm_rad'] * ang_step
 
-    views = astra_helical_views(
+    views = astra_helical_views_uv(
         helical_scan_geom["SOD"],
         helical_scan_geom["SDD"],
-        helical_scan_geom['detector']["detector psize"],
+        helical_scan_geom['detector']["detector psize u"],
+        helical_scan_geom['detector']["detector psize v"],
         angles,
         stride_mm
     )

@@ -26,13 +26,13 @@ geometry:
       detector cols : 1376 # 64
       alpha_m : 0.426235
     helix:
-      angles_count: 1024
+      angles_count: 2000
       pitch_mm_rad: 7.3273 # 6.4346 # pitch in mm per radian # 5.15 7.3273
       angles_range : 34.03 #34.030
     condition:
       M : 309
     T-D smoothing:
-      factor : 5
+      factor : 0.5
 
 phantom:
   voxel_size: 0.5 # 0.32

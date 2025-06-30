@@ -745,7 +745,7 @@ def filter_katsevich(
     if back_rebin_time:
         print(f"bhr Done in {t2-t1:.4f} seconds")
 
-    saveit = 1
+    saveit = 0
     if saveit == 1:    
         import tifffile
         tifffile.imwrite('filtered_proj1.tif', input_array.astype(np.float32))
@@ -1090,6 +1090,20 @@ def sino_weight_td(input_array, conf, show_td_window=True):
     W, U = np.meshgrid(conf['row_coords'][:-1], conf['col_coords'][:-1], indexing='ij')
     print(np.shape(W))
     # print(f'W = {U}')
+
+    def chi_1(a, U_mesh, W_mesh):
+        # 提前展开上下界区间
+        W_top_high     = np.repeat(w_top + a*dw, W_mesh.shape[0], axis=0)
+        W_top_low      = np.repeat(w_top - a*dw, W_mesh.shape[0], axis=0)
+        W_bottom_high  = np.repeat(w_bottom + a*dw, W_mesh.shape[0], axis=0)
+        W_bottom_low   = np.repeat(w_bottom - a*dw, W_mesh.shape[0], axis=0)
+        
+        mask = np.zeros_like(W_mesh)
+        mask[(W_mesh >= w_bottom) & (W_mesh <= w_top)] = 1
+
+        mask = np.ones_like(W_mesh)
+        return mask
+
 
     def chi(a, U_mesh, W_mesh):
         mask = np.zeros_like(W_mesh)

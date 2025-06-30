@@ -21,7 +21,7 @@ In the end, both Numpy and ASTRA backprojections are run on the filtered data.
 """
 def test_pipeline(settings_file):
 
-    from common import phantom_objects_3d, project, animate_volume, backproject
+    from tests.common import phantom_objects_3d, project, animate_volume, backproject
 
     import numpy as np
     from matplotlib import pyplot as plt
@@ -30,12 +30,12 @@ def test_pipeline(settings_file):
     import os
     import astra
 
-    test_dir = os.getcwd()
+    '''test_dir = os.getcwd()
     try:
         test_dir = os.sep.join(__file__.split("/")[:-1])
     except:
-        print("Failed to pick the path to the Python file, picking current work directory instead")
-
+        print("Failed to pick the path to the Python file, picking current work directory instead")'''
+    test_dir = 'tests'
     yaml_settings = {}
     with open(os.sep.join([test_dir, settings_file]), "r") as file:
         yaml_settings = yaml.safe_load(file)
@@ -54,6 +54,9 @@ def test_pipeline(settings_file):
         min_max_per_frame=False,
         title="Volume to be projected"
     )
+
+    import pdb
+    pdb.set_trace()
 
     geom = yaml_settings['geometry']
     

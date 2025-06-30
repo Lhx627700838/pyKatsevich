@@ -20,8 +20,6 @@ This test runs ASTRA's backprojection on filtered sinogram.
 """
 def test_pipeline(settings_file):
 
-    from tests.common import phantom_objects_3d, project, animate_volume, backproject
-
     import numpy as np
     from matplotlib import pyplot as plt
     from time import time
