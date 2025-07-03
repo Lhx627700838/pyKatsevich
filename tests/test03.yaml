@@ -26,7 +26,7 @@ geometry:
       detector cols : 1376 # 64
       alpha_m : 0.426235
     helix:
-      angles_count: 2000
+      angles_count: 10919
       pitch_mm_rad: 7.3273 # 6.4346 # pitch in mm per radian # 5.15 7.3273
       angles_range : 34.03 #34.030
     condition:

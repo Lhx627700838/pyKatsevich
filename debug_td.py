@@ -90,5 +90,5 @@ if show_td_window:
     #plt.imshow(TD_mask, cmap='gray')
     #plt.colorbar()
     import tifffile
-    tifffile.imwrite('TD_mask.tif',TD_mask)
+    tifffile.imwrite('TD_mask.tif',TD_mask[:,::-1])
     # plt.show()

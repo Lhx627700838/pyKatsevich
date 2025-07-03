@@ -26,8 +26,9 @@ geometry:
       detector cols : 1376 # 64
     helix:
       angles_count: 4000
-      pitch_mm_rad: -7.3273 # 46 = 7.32*pi
+      pitch_mm_rad: 7.3273 # 46 = 7.32*pi
       angles_range : 4000
+      counter_clockwise_factor: -1
     options:
       detector_rebin_rows: 95
     condition:

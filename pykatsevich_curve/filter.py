@@ -66,7 +66,7 @@ def differentiate(sinogram, conf, tqdm_bar=False):
     print(row_coords)
     print('col coord: ')
     print(alpha_coords)
-    
+    print('sinogram shape:', sinogram.shape)
 
     w = np.array(row_coords).reshape(-1, 1)          # shape: [N_w, 1]
     row_sqr = np.zeros_like(sinogram[0, :, :-1])
@@ -74,7 +74,7 @@ def differentiate(sinogram, conf, tqdm_bar=False):
     #print('row_sqr.shape', row_sqr.shape)
 
     output_array = np.zeros_like(sinogram)
-
+    output_array_half_for_interpolate = np.zeros_like(sinogram[:-1, :, :-1])
     range_obj = tqdm(range(sinogram.shape[0] - 1), desc="CF1 curved detector") if tqdm_imported and tqdm_bar else range(sinogram.shape[0] - 1)
 
     for k in range_obj:
@@ -89,8 +89,38 @@ def differentiate(sinogram, conf, tqdm_bar=False):
 
         term = d_proj_term + d_alpha_term
         #('term shape', term.shape)
-        output_array[k, :, :-1] = term * SDD / np.sqrt(SDD**2 + row_sqr)
+        output_array_half_for_interpolate[k, :, :]  = term * SDD / np.sqrt(SDD**2 + row_sqr)
+        # the following filling method has a half-pixel error
+        # output_array[k, :, :-1] = term * SDD / np.sqrt(SDD**2 + row_sqr)
+    from scipy.interpolate import interpn
 
+    # 构建原始半格采样坐标
+    lambda_half = np.arange(0.5, sinogram.shape[0]-0.5, 1.0)   # 3999
+    alpha_half  = np.arange(0.5, sinogram.shape[2]-0.5, 1.0)   # 1375
+
+    points2d = (lambda_half, alpha_half)
+
+    # 定义目标整格坐标
+    lambda_full = np.arange(0, sinogram.shape[0], 1.0)         # 4000
+    alpha_full  = np.arange(0, sinogram.shape[2], 1.0)         # 1376
+
+    # meshgrid for 2D slice
+    xi2d = np.meshgrid(lambda_full, alpha_full, indexing='ij') # shape (4000,1376)
+
+    output_array = np.zeros_like(sinogram, dtype=np.float32)
+
+    # 逐 w 插值
+    for j in tqdm(range(sinogram.shape[1]), desc="CF1 curved detector interpolation"):
+        values2d = output_array_half_for_interpolate[:, j, :]   # shape (3999, 1375)
+
+        output_array[:, j, :] = interpn(
+            points2d,
+            values2d,
+            (xi2d[0], xi2d[1]),
+            method="linear",
+            bounds_error=False,
+            fill_value=0.0
+        )
     return output_array
 
 def post_cosine_weighting(input_array, conf):
@@ -125,6 +155,12 @@ def fw_Kcurve_rebinning(input_array, conf):
     output_array = np.zeros((input_array.shape[0], detector_rebin_rows, detector_columns), dtype=np.float32)
     wk_index_map = np.zeros((M, detector_columns), dtype=np.float32)
     print('output_array.shape',output_array.shape)
+
+    angles_range = conf['s_len']
+    if angles_range<0:
+        detector_columns_coordinate = 1*detector_columns_coordinate
+        psi_list = -1*psi_list
+
     # ==== 计算 wk_index_map，只执行一次 ====
     tan_psi = np.tan(psi_list)
     tan_psi[np.abs(tan_psi) < 1e-6] = 1e-6  # 避免除0
@@ -553,7 +589,7 @@ def bw_Kcurve_rebinning(input_array, wk_index_map, conf):
                 output_array[proj, row, col] = val
 
     return output_array
-
+import pdb
 def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf ,oringinaldata):
     import numpy as np
     from tqdm import tqdm
@@ -574,12 +610,14 @@ def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf ,oringinaldata):
         # 提前预取该列所有插值坐标及权重
         for row in range(detector_rows):
             w_idx = row
-
+            #pdb.set_trace()
             # 若当前 row 对应的 w 不在 wk_col 的范围内，则跳过
+            # if np.min(wk_col) > w_idx or np.max(wk_col) < w_idx:
             if wk_col[0] > w_idx or wk_col[-1] < w_idx:
                 continue
 
             # 查找插值点上下界索引
+            # 在 wk_col 这个数组中，查找 w_idx 应该插入的位置，以保持 wk_col 的升序排列（wk_col 需要是升序）。
             idx_upper = np.searchsorted(wk_col, w_idx, side='right')
             idx_lower = idx_upper - 1
 
@@ -673,10 +711,10 @@ def filter_katsevich(
     saveit = 1
     if saveit == 1:    
         import tifffile
-        tifffile.imwrite('filtered_proj1.tif',input_array)
-        tifffile.imwrite('filtered_proj2.tif',diff_proj)
-        tifffile.imwrite('filtered_proj3.tif',fwd_rebin_array)
-        tifffile.imwrite('filtered_proj4.tif',sino_hilbert_trans)
+        # tifffile.imwrite('filtered_proj1.tif',input_array)
+        # tifffile.imwrite('filtered_proj2.tif',diff_proj)
+        # tifffile.imwrite('filtered_proj3.tif',fwd_rebin_array)
+        # tifffile.imwrite('filtered_proj4.tif',sino_hilbert_trans)
         tifffile.imwrite('filtered_proj5.tif',filtered_projections)
     return filtered_projections
 

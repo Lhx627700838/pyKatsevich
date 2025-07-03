@@ -19,6 +19,47 @@
 This test runs ASTRA's backprojection on filtered sinogram.
 """
 import numpy as np
+
+def test_config(settings_file):
+    import yaml
+    import os
+    import sys
+    import tifffile
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from pykatsevich_curve.initialize import create_configuration
+
+    try:
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+    except:
+        print("Failed to get __file__, using current working directory instead")
+        test_dir = os.getcwd()
+
+    # 拼接 yaml 文件完整路径
+    yaml_path = os.path.join(test_dir, settings_file)
+
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f"配置文件未找到: {yaml_path}")
+
+    with open(yaml_path, "r") as file:
+        yaml_settings = yaml.safe_load(file)
+
+    recon = yaml_settings['recon']
+    recon_shape = (recon['rows'], recon['columns'], recon['slices']) 
+    voxel_size = recon['voxel_size']
+    geom = yaml_settings['geometry']
+    
+    
+    angles_count = 4000
+    vol_geom, proj_geom,_ = generate_astra_geom(recon_shape, voxel_size, geom)
+    
+    conf=create_configuration(
+        angles_count,
+        geom,
+        vol_geom,
+        yaml_settings['geometry'].get('options', {})
+    )
+
+
 def test_pipeline(settings_file):
 
     from tests.common import phantom_objects_3d, project, animate_volume, backproject
@@ -66,8 +107,8 @@ def test_pipeline(settings_file):
     plt.show()'''
     
     angles_count = sinogram.shape[0]
-    vol_geom, proj_geom,_ = generate_astra_geom(recon_shape, voxel_size, geom)
-    
+    vol_geom, proj_geom, lambda_list = generate_astra_geom(recon_shape, voxel_size, geom)
+    print('lambda list:', lambda_list)
     conf=create_configuration(
         angles_count,
         geom,
@@ -127,6 +168,7 @@ def only_reconstruct_pipeline_astra(settings_file):
     filtered_projections = tifffile.imread(r"filtered_proj5.tif")
     print('input shape: ', filtered_projections.shape)
     vol_geom, proj_geom, lambda_list = generate_astra_geom(recon_shape, voxel_size, geom)
+    print('lambda list:', lambda_list)
 
     angles_count = filtered_projections.shape[0]
     conf=create_configuration(
@@ -177,13 +219,13 @@ def only_reconstruct_pipeline_astra(settings_file):
     import numpy as np
 
     # 设置体素空间大小与分辨率
-    Nx, Ny, Nz = 128, 128, 128         # 体素数
-    dx, dy, dz = 4.0, 4.0, 4.0         # 每个体素的尺寸（单位 mm）
+    # Nx, Ny, Nz = 128, 128, 128         # 体素数
+    # dx, dy, dz = 4.0, 4.0, 1.0         # 每个体素的尺寸（单位 mm）
 
-    #Nx, Ny, Nz = 512, 512, 128         # 体素数
-    #dx, dy, dz = 1.0, 1.0, 4.0         # 每个体素的尺寸（单位 mm）
+    Nx, Ny, Nz = 512, 512, 128         # 体素数
+    dx, dy, dz = 1.0, 1.0, 1.0         # 每个体素的尺寸（单位 mm）
 
-    # 定义中心坐标位置
+    # 定义中心坐标位置 z范围：48-80 * 40
     x_center, y_center, z_center = 0.0, 0.0, 0.0
 
     # 创建物理坐标范围
@@ -217,8 +259,10 @@ def only_reconstruct_pipeline_astra(settings_file):
         pinned_mempool = cp.get_default_pinned_memory_pool()
         mempool.free_all_blocks()
         pinned_mempool.free_all_blocks()
-
+    import pdb
+    #pdb.set_trace()
     print('done')
+    bp_astra = bp_astra.astype(np.float32)
     tifffile.imwrite('recon.tif',bp_astra)
 
 def only_reconstruct_pipeline(settings_file):

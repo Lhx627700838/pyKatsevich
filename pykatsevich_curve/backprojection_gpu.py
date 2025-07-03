@@ -2,6 +2,80 @@ import cupy as cp
 from tqdm import tqdm
 #import pudb; pudb.set_trace()
 import pdb
+
+import cupy as cp
+from tqdm import tqdm
+
+def katsevich_backprojection_curved_gpu1(
+    g_filtered, lambdas, x_grid, y_grid, z_grid, R0, D, P, d_alpha, d_w, lambda0=0, z0=0
+    
+):
+    """
+    pointwise GPU version:
+    - loops over x, y, z
+    - each voxel accumulates over all lambdas
+    - cupy kernel
+    """
+
+    # cupy array
+    g_filtered = cp.asarray(g_filtered)
+    lambdas = cp.asarray(lambdas)
+
+    Nx, Ny, Nz = x_grid.shape
+
+    x_grid = cp.asarray(x_grid)
+    y_grid = cp.asarray(y_grid)
+    z_grid = cp.asarray(z_grid)
+
+    d_lambda = cp.abs(lambdas[1] - lambdas[0])
+    N_lambda = len(lambdas)
+
+    N_w     = g_filtered.shape[1]
+    N_alpha = g_filtered.shape[2]
+    
+
+    f = cp.zeros((Nx, Ny, Nz), dtype=cp.float32)
+
+    for ix in tqdm(range(Nx), desc="x loop"):
+        for iy in range(Ny):
+            for iz in range(Nz):
+                x = x_grid[ix, iy, iz]
+                y = y_grid[ix, iy, iz]
+                z = z_grid[ix, iy, iz]
+                accum = 0.0
+
+                for i in range(N_lambda):
+                    lam = lambdas[i]
+                    phi = lam + lambda0
+                    cos_phi = cp.cos(phi)
+                    sin_phi = cp.sin(phi)
+
+                    v_star = R0 - x * cos_phi - y * sin_phi
+                    #print(v_star)
+                    if v_star == 0:
+                        continue
+
+                    alpha_star = cp.arctan( (-x*sin_phi + y*cos_phi) / v_star )
+                    w_star = D * cp.cos(alpha_star) / v_star * (z - z0 - P * phi / (2*cp.pi))
+
+                    alpha_idx = int(alpha_star/d_alpha + N_alpha/2)
+                    w_idx     = int(-w_star/d_w + N_w/2)
+                    #pdb.set_trace()
+                    if (
+                        0 <= alpha_idx < N_alpha
+                        and 0 <= w_idx    < N_w
+                    ):
+                        g_val = g_filtered[i, w_idx, alpha_idx]
+                    else:
+                        g_val = 0.0
+
+                    accum += (g_val / v_star) * d_lambda
+
+                f[ix, iy, iz] = accum / (2*cp.pi)
+
+    return cp.asnumpy(f)
+
+
 def katsevich_backprojection_curved_gpu(
     g_filtered, lambdas, x_grid, y_grid, z_grid, R0, D, P, d_alpha, d_w, lambda0=0, z0=0
 ):
@@ -18,8 +92,9 @@ def katsevich_backprojection_curved_gpu(
     d_lambda = cp.abs(lambdas[1] - lambdas[0])
     N_lambda = len(lambdas)
 
-    N_alpha = g_filtered.shape[1]
-    N_w = g_filtered.shape[2]
+    N_w = g_filtered.shape[1]
+    N_alpha = g_filtered.shape[2]
+    
     alpha_max = cp.pi / 2
     w_max = D
 
@@ -39,7 +114,7 @@ def katsevich_backprojection_curved_gpu(
         lam = lambdas[i]
         
         phi = lam + lambda0
-        phi *= -1 # lambda increases counterclockwise so should multiply -1
+        # phi *= -1 # lambda increases counterclockwise so should multiply -1
         cos_phi = cp.cos(phi)
         sin_phi = cp.sin(phi)
 
