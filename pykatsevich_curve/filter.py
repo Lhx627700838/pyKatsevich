@@ -25,7 +25,7 @@ from matplotlib import pyplot as plt
 import cupy as cp
 import astra
 from time import time 
-
+DEBUG = False
 def differentiate(sinogram, conf, tqdm_bar=False):
     """
     Derivative + weighting for curved detector geometry.
@@ -60,13 +60,14 @@ def differentiate(sinogram, conf, tqdm_bar=False):
     R0 = conf['scan_radius']
     SDD = conf['scan_diameter']
 
-    print('row_coords.shape', row_coords.shape)
-    print('col_coords.shape', alpha_coords.shape)
-    print('row coord: ')
-    print(row_coords)
-    print('col coord: ')
-    print(alpha_coords)
-    print('sinogram shape:', sinogram.shape)
+    if DEBUG:
+        print('row_coords.shape', row_coords.shape)
+        print('col_coords.shape', alpha_coords.shape)
+        print('row coord: ')
+        print(row_coords)
+        print('col coord: ')
+        print(alpha_coords)
+        print('sinogram shape:', sinogram.shape)
 
     w = np.array(row_coords).reshape(-1, 1)          # shape: [N_w, 1]
     row_sqr = np.zeros_like(sinogram[0, :, :-1])
@@ -77,6 +78,7 @@ def differentiate(sinogram, conf, tqdm_bar=False):
     output_array_half_for_interpolate = np.zeros_like(sinogram[:-1, :, :-1])
     range_obj = tqdm(range(sinogram.shape[0] - 1), desc="CF1 curved detector") if tqdm_imported and tqdm_bar else range(sinogram.shape[0] - 1)
 
+    interp_type = 'average_interp'
     for k in range_obj:
         # central finite differences over λ, w, α
         # [2016, 144, 1376]
@@ -90,38 +92,134 @@ def differentiate(sinogram, conf, tqdm_bar=False):
         term = d_proj_term + d_alpha_term
         #('term shape', term.shape)
         output_array_half_for_interpolate[k, :, :]  = term * SDD / np.sqrt(SDD**2 + row_sqr)
-        # the following filling method has a half-pixel error
-        # output_array[k, :, :-1] = term * SDD / np.sqrt(SDD**2 + row_sqr)
-    from scipy.interpolate import interpn
+        # the following filling method (without interpolation) has a half-pixel error
+        if interp_type == 'no_interp':
+            output_array[k, :, :-1] = term * SDD / np.sqrt(SDD**2 + row_sqr)
+    
+    if interp_type == 'scipy_interpn':
+        from scipy.interpolate import interpn
 
-    # 构建原始半格采样坐标
-    lambda_half = np.arange(0.5, sinogram.shape[0]-0.5, 1.0)   # 3999
-    alpha_half  = np.arange(0.5, sinogram.shape[2]-0.5, 1.0)   # 1375
+        # 构建原始半格采样坐标
+        lambda_half = np.arange(0.5, sinogram.shape[0]-0.5, 1.0)   # 3999
+        alpha_half  = np.arange(0.5, sinogram.shape[2]-0.5, 1.0)   # 1375
 
-    points2d = (lambda_half, alpha_half)
+        points2d = (lambda_half, alpha_half)
 
-    # 定义目标整格坐标
-    lambda_full = np.arange(0, sinogram.shape[0], 1.0)         # 4000
-    alpha_full  = np.arange(0, sinogram.shape[2], 1.0)         # 1376
+        # 定义目标整格坐标
+        lambda_full = np.arange(0, sinogram.shape[0], 1.0)         # 4000
+        alpha_full  = np.arange(0, sinogram.shape[2], 1.0)         # 1376
 
-    # meshgrid for 2D slice
-    xi2d = np.meshgrid(lambda_full, alpha_full, indexing='ij') # shape (4000,1376)
+        # meshgrid for 2D slice
+        xi2d = np.meshgrid(lambda_full, alpha_full, indexing='ij') # shape (4000,1376)
 
-    output_array = np.zeros_like(sinogram, dtype=np.float32)
+        output_array = np.zeros_like(sinogram, dtype=np.float32)
 
-    # 逐 w 插值
-    for j in tqdm(range(sinogram.shape[1]), desc="CF1 curved detector interpolation"):
-        values2d = output_array_half_for_interpolate[:, j, :]   # shape (3999, 1375)
+        # 逐 w 插值
+        for j in tqdm(range(sinogram.shape[1]), desc="CF1 curved detector interpolation"):
+            values2d = output_array_half_for_interpolate[:, j, :]   # shape (3999, 1375)
 
-        output_array[:, j, :] = interpn(
-            points2d,
-            values2d,
-            (xi2d[0], xi2d[1]),
-            method="linear",
-            bounds_error=False,
-            fill_value=0.0
-        )
+            output_array[:, j, :] = interpn(
+                points2d,
+                values2d,
+                (xi2d[0], xi2d[1]),
+                method="linear",
+                bounds_error=False,
+                fill_value=0.0
+            )
+    if interp_type == 'average_interp':
+        # 中间
+        output_array[1:-1, :, 1:-1] = (
+            output_array_half_for_interpolate[:-1, :, :-1]
+            + output_array_half_for_interpolate[1:, :, :-1]
+            + output_array_half_for_interpolate[:-1, :, 1:]
+            + output_array_half_for_interpolate[1:, :, 1:]
+        ) / 4.0
+
+        # 左边界
+        output_array[0, :, :] = 0
+        # 右边界
+        output_array[-1, :, :] = 0
+        # 上下边界
+        output_array[:, :, 0] = 0
+        output_array[:, :, -1] = 0
+
     return output_array
+
+def differentiate_noo(projections, conf):
+    """
+    projections: (N_lambda, N_w, N_alpha)
+    conf:
+      delta_s
+      col_coords
+      row_coords
+      scan_radius
+      scan_diameter
+      progress_per_turn
+    """
+
+    N_lambda, N_w, N_alpha = projections.shape
+
+    delta_s = conf['delta_s']
+    alpha_coords = conf['col_coords']  # size 1376
+    w_coords     = conf['row_coords']  # size 144
+    R0           = conf['scan_radius']
+    D            = conf['scan_diameter']
+    P            = conf['progress_per_turn']
+
+    # define n (centerline direction)
+    n = np.array([0, 0, 1])   # L axis along z
+
+    # prepare alpha direction vectors
+    alpha_vectors = np.zeros((N_alpha, 3))
+    alpha_vectors[:,0] = np.sin(alpha_coords)
+    alpha_vectors[:,1] = -np.cos(alpha_coords)
+    alpha_vectors[:,2] = 0
+
+    # prepare source trajectory
+    lambdas = np.arange(N_lambda) * delta_s
+
+    # helical trajectory:
+    # source positions a(lambda):
+    # a(lambda) = [R0*cos(lambda), R0*sin(lambda), P/(2*pi)*lambda]
+    source_pos = np.zeros((N_lambda, 3))
+    source_pos[:,0] = R0 * np.cos(lambdas)
+    source_pos[:,1] = R0 * np.sin(lambdas)
+    source_pos[:,2] = P/(2*np.pi) * lambdas
+
+    # precompute n dot alpha
+    n_dot_alpha = alpha_vectors @ n  # shape (N_alpha,)
+    n_norm_sq   = 1.0   # since n is unit vector
+
+    # output array
+    g_prime = np.zeros_like(projections)
+
+    for k in range(1,N_lambda-1):
+        a_k = source_pos[k]  # shape (3,)
+
+        for i in range(N_alpha):
+            alpha_i = alpha_vectors[i]
+
+            alpha_proj = alpha_i - n * (alpha_i @ n)
+
+            denom = 1.0 - (n @ alpha_i)**2
+            numer = ( - a_k ) @ alpha_proj  # x0 = 0
+
+            # b(lambda,alpha)
+            b_k = a_k + numer / denom * alpha_i
+
+            # 根据 b_k 可以做一个位置补偿插值
+            # 这里示例：直接在 α 方向做最邻近插值
+            # 你也可以改成线性插值
+            alpha_idx = np.argmin( np.abs(alpha_coords - np.arctan2(b_k[0], -b_k[1])) )
+
+            # 最终中心差分
+            for j in range(N_w):
+                g_prime[k,j,i] = (
+                    projections[k+1,j,alpha_idx] - projections[k-1,j,alpha_idx]
+                ) / (2*delta_s)
+
+    return g_prime
+
 
 def post_cosine_weighting(input_array, conf):
     '''
@@ -684,8 +782,9 @@ def filter_katsevich(
     t2 = time()
     if fwd_rebin_time:
         print(f"fhr Done in {t2-t1:.4f} seconds")
-    print("rebinning mapping list: ", wk_index_map.shape)
-    print(wk_index_map)
+    if DEBUG:
+        print("rebinning mapping list: ", wk_index_map.shape)
+        print(wk_index_map)
 
     d_alpha = conf['pixel_span']
     kernel_radius = conf['kernel_radius']

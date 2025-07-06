@@ -9,8 +9,8 @@ if __name__=="__main__":
     
     yaml_settings_file = "Naeotom_spine_curve.yaml"
     #test_config(yaml_settings_file)
-    #Naeotom_curve(yaml_settings_file)
-    Naeotom_reco_curve(yaml_settings_file)
+    Naeotom_curve(yaml_settings_file)
+    #Naeotom_reco_curve(yaml_settings_file)
     '''
     yaml_settings_file = "test03.yaml"
     t03(yaml_settings_file)
