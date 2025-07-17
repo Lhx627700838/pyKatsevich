@@ -115,7 +115,7 @@ def project(
     """
     import numpy as np
     import astra
-    from pykatsevich.geometry import astra_helical_views
+    from pykatsevich.geometry import astra_helical_views_uv
 
     astra_vol_geom = astra.create_vol_geom(
         volume.shape[0],  # rows - Y
@@ -139,7 +139,7 @@ def project(
 
     # print(f"projs_per_turn = {projs_per_turn}")
 
-    delta_s = 2*np.pi / projs_per_turn # Turn in radians per projection 
+    delta_s = s_len / helical_scan_geom['helix']["angles_count"] # Turn in radians per projection 
 
     angles = s_min + delta_s * (np.arange(helical_scan_geom['helix']["angles_count"], dtype=np.float32) + 0.5 )
 
@@ -147,12 +147,20 @@ def project(
 
     ang_step = delta_s
 
-    stride_mm = helical_scan_geom['helix']['pitch_mm_rad'] * ang_step
+    if helical_scan_geom['helix']['pitch_mm_rad']>0 and ang_step > 0:
+        stride_mm = helical_scan_geom['helix']['pitch_mm_rad'] * ang_step
+    if helical_scan_geom['helix']['pitch_mm_rad']>0 and ang_step < 0:
+        stride_mm = -helical_scan_geom['helix']['pitch_mm_rad'] * ang_step
+    if helical_scan_geom['helix']['pitch_mm_rad']<0 and ang_step > 0:
+        stride_mm = helical_scan_geom['helix']['pitch_mm_rad'] * ang_step
+    if helical_scan_geom['helix']['pitch_mm_rad']<0 and ang_step < 0:
+        stride_mm = -helical_scan_geom['helix']['pitch_mm_rad'] * ang_step
 
-    views = astra_helical_views(
+    views = astra_helical_views_uv(
         helical_scan_geom["SOD"],
         helical_scan_geom["SDD"],
-        helical_scan_geom['detector']["detector psize"],
+        helical_scan_geom['detector']["detector psize u"],
+        helical_scan_geom['detector']["detector psize v"],
         angles,
         stride_mm
     )

@@ -28,7 +28,8 @@ def test_pipeline(settings_file):
     import yaml
     import os
     import astra
-
+    from skimage.data import shepp_logan_phantom
+    from skimage.transform import resize
     try:
         test_dir = os.path.dirname(os.path.abspath(__file__))
     except:
@@ -46,15 +47,19 @@ def test_pipeline(settings_file):
     phantom_settings = yaml_settings['phantom']
     print(f"Generating the volume with the following objects: {phantom_settings['objects']}")
     voxel_size = phantom_settings['voxel_size']
-    phantom  = phantom_objects_3d(
-        phantom_settings['rows'], phantom_settings['columns'], phantom_settings['slices'],
-        voxel_size=voxel_size, objects_list=phantom_settings['objects'])
-    print(type(phantom))
-    print(np.shape(phantom))
+    vol_dim = (phantom_settings['slices'],phantom_settings['rows'], phantom_settings['columns'])  # (Z, Y, X)
+    phantom  = phantom_objects_3d(phantom_settings['rows'], phantom_settings['columns'], phantom_settings['slices'],voxel_size=voxel_size, objects_list=phantom_settings['objects'])
+    print('phantom size',np.shape(phantom))
+    
+    # 构建 2D phantom
+    phantom2d = shepp_logan_phantom()
+    phantom2d_resized = resize(phantom2d, (vol_dim[1], vol_dim[2]), mode='reflect', anti_aliasing=True)
+
+    # 沿 Z 轴堆叠成 3D
+    phantom3d = np.stack([phantom2d_resized] * vol_dim[0], axis=0)  # shape: (128, 128, 128)
     import tifffile
-    outputphantom = np.transpose(phantom,(2,0,1))
-    outputphantom = outputphantom.astype(np.float32)
-    tifffile.imwrite('phantom.tif',outputphantom)
+    
+    tifffile.imwrite('phantom.tif', phantom3d.astype(np.float32))
     geom = yaml_settings['geometry']
     
     import sys
@@ -62,6 +67,7 @@ def test_pipeline(settings_file):
     from pykatsevich.initialize import create_configuration
 
     print("Projecting the phantom", end='...')
+    phantom3d = phantom3d.transpose([2,1,0])
     sinogram, vol_geom, proj_geom = project(phantom, voxel_size, geom)
     print("Done")
 
@@ -72,6 +78,7 @@ def test_pipeline(settings_file):
     )
 
     sinogram_swapped = np.asarray(np.swapaxes(sinogram, 0, 1), order='C')
+    print(np.shape(sinogram_swapped))
 
     # plt.figure()
     # plt.imshow(sinogram_swapped[sinogram_swapped.shape[0] // 2], cmap='gray')
@@ -80,7 +87,7 @@ def test_pipeline(settings_file):
 
 
     from pykatsevich.reconstruct import reconstruct
-
+    # sinogram_swapped = sinogram_swapped[:, ::-1, :]
     rec_astra = reconstruct(
         sinogram_swapped,
         conf,

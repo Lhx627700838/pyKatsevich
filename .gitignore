@@ -5,3 +5,5 @@ build/*
 *.png
 *.egg-info*
 *__pycache__*
+report
+pykatsevich_curve

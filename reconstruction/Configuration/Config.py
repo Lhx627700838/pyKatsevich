@@ -4,15 +4,15 @@ defines parameters for scanner and image model
 import numpy as np
 
 source = 'Naeotom' #'drr' or 'sim'
-drrsize = [256, 128]
+drrsize = [1376, 144]
 # x-ray source parameters
 SAD = 610 #927 # source-axis distance in mm
 sourceAxisAngle = 90 # degree angle between source-ISO line and z-axis of the imaging system
 
 # flat panel detector parameters
 SDD = 1113 #1274
-detectorDimension = [256, 144] # in x and z direction (must be at least 2 in each dimension) should be same as drr if choose 'drr' 
-detectorResolution = [0.4, 0.4] # mm
+detectorDimension = [1376, 144] # in x and z direction (must be at least 2 in each dimension) should be same as drr if choose 'drr' 
+detectorResolution = [0.689741074909091, 0.4008525174825175] # mm
 detectorOffset = [0.5, 0.5]  # mm, center offset in x and z if choose drr, set [0.5 ,0.5]
 detectorTiltAngle = 0 # additional tilt degree angle of the detector panel
 detectorAxisAngle = 0 # degree angle between panel-ISO line and z-axis of the imaging system
@@ -20,7 +20,7 @@ detectorAxisAngle = 0 # degree angle between panel-ISO line and z-axis of the im
 
 
 # projection parameters
-nView = 2048 # number of axial angles both for sim and drr
+nView = 4096 # number of axial angles both for sim and drr
 evenlyDistributedView = True
 viewSet = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340] # set of axial angles if not axial angles are not evenly distributed
 rayTracingMethod = 'distance' # 'distance': length of intersection; 'sampling: sample point on source-detector line
@@ -29,8 +29,8 @@ simulateProjectionMethod = 'forward' # 'analytic': calc line integral from analy
 projectorPlatform = 'cuda' # option: c, python
 
 # helix parameters
-pitch = -46 # unit in mm
-angles_range = 34.03 # unit in rad
+pitch = 46 # unit in mm
+angles_range = -34.03 # unit in rad
 views_per_turn = nView/(angles_range/(2*np.pi))
 deltaZ = pitch/views_per_turn
 total_angle = (angles_range/(2*np.pi))*360
@@ -43,7 +43,7 @@ fbpFilter = 'hamming' # supported filters: ramp, shepp-logan, cosine, hamming an
 fbpCutoffFreq = 0.8 # cutoff frequency (relative to max freq) during filtering in FBP
 mlemIteration = 30 # number of iterations in MLEM reconstruction
 waterMu = 0.0196 # the attenuation of water that will be used in HU conversion
-reconImageDimension = [128, 128, 256] # number of voxels in x, y and z dimensions
+reconImageDimension = [512, 512, 256] # number of voxels in x, y and z dimensions
 reconImageResolution = [0.5, 0.5, 0.5] # image resolution in mm 
 reconImageOffset = [0, 0, -128] # mm, recon center offset
 

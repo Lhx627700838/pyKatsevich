@@ -55,7 +55,8 @@ def test_pipeline(settings_file):
     
 
 
-    sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\scan_001_flat_helix_projections.tif")
+    # sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\scan_001_flat_helix_projections.tif")
+    sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\naeotom_cat_10919.tif")
     vol_geom, proj_geom = generate_astra_geom(recon_shape, voxel_size, geom)
 
     conf=create_configuration(
@@ -66,7 +67,7 @@ def test_pipeline(settings_file):
 
 
     from pykatsevich.reconstruct import reconstruct
-
+    sinogram = sinogram[:, ::-1, :]
     rec_astra = reconstruct(
         sinogram,
         conf,
@@ -81,7 +82,8 @@ def test_pipeline(settings_file):
     )
 
     print('done')
-    tifffile.imwrite('recon.tif',rec_astra)
+    rec_astra = np.transpose(rec_astra,[2,1,0])
+    tifffile.imwrite('recon_Naeotom.tif',rec_astra)
 
 def generate_astra_geom(volume_shape, voxel_size, helical_scan_geom):
     """
@@ -145,7 +147,7 @@ def generate_astra_geom(volume_shape, voxel_size, helical_scan_geom):
         helical_scan_geom['detector']["detector cols"],
         views
     )
-
+    
     return astra_vol_geom, astra_proj_geom
 
 

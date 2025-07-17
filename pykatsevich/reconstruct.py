@@ -46,14 +46,10 @@ def reconstruct(
     clear_cupy_mempool : bool
         Clear CuPy default memory and pinned memory pools. The default is True.
     """
-    filt_opts = {}
-    for k in ("Diff", "FwdRebin", "BackRebin"):
-        filt_opts[k] = verbosity_options.get(k, {})
     
     filtered_projections = filter_katsevich(
             input_array,
             conf,
-            filt_opts
         )
     
     sino_td = sino_weight_td(filtered_projections, conf, True)
@@ -67,6 +63,8 @@ def reconstruct(
         print("Backprojection step", end="... ")
 
     t1 = time()
+    print(np.shape(sino_td))
+    
     bp_astra = backproject_a(
         sino_td,
         conf,

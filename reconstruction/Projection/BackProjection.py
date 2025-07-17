@@ -13,6 +13,7 @@ import ctypes
 import time
 import Utils.Visualization.VisualizeSystem as VisualizeSystem
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 def CalcNormalVector(point1, point2, point3):
 
@@ -111,19 +112,19 @@ def CalcInterpolatedDetectorReading(pointCoordinate, projectionData, detector):
 
 
 def BackProjectView(detector_center_traj,source_trajectory, fig,ax,iView, viewSet, projectionView, image, source, detector, cuda_id):
-    
+# def BackProjectView(iView, viewSet, projectionView, image, source, detector, cuda_id):
     source.ComputeSourceCoordinate(source.SAD, source.sourceAxisAngle, viewSet[iView],iView)
     sourceCoordinate = source.coordinate
     detector.ComputeDetectCoordinate(detector.SAD, detector.SDD, detector.dimension, detector.resolution,
                                      detector.offset, detector.detectorAxisAngle, detector.detectorTiltAngle,
                                      viewSet[iView], iView, cuda_id)
-    print(f"Starting FBP for view {iView} on CUDA device {cuda_id}")
+    # print(f"Starting FBP for view {iView} on CUDA device {cuda_id}")
 
         
-    source_trajectory.append(source.coordinate.reshape(3))
-    detector_center = np.mean(detector.coordinate.reshape(3, -1), axis=1)
-    detector_center_traj.append(detector_center)
-    VisualizeSystem.visualize_system_dynamic(fig, ax, image, source, detector,source_trajectory,detector_center_traj)
+    # source_trajectory.append(source.coordinate.reshape(3))
+    # detector_center = np.mean(detector.coordinate.reshape(3, -1), axis=1)
+    # detector_center_traj.append(detector_center)
+    # VisualizeSystem.visualize_system_dynamic(fig, ax, image, source, detector,source_trajectory,detector_center_traj)
 
     dbeta = 2 * math.pi / Config.nView  # needs to math with the scan rotation (clockwise or counter clockwise)
     beta = iView * dbeta
@@ -402,7 +403,7 @@ def BackProjectView(detector_center_traj,source_trajectory, fig,ax,iView, viewSe
         
 
         # 设置 CUDA 网格和块的大小
-        block_size = (8, 8, 8)
+        block_size = (2, 4, 64)
         grid_size = (int(np.ceil(image.dimension[0] / block_size[0])),
                     int(np.ceil(image.dimension[1] / block_size[1])),
                     int(np.ceil(image.dimension[2] / block_size[2])))
@@ -436,7 +437,7 @@ def BackProjectView(detector_center_traj,source_trajectory, fig,ax,iView, viewSe
         d_backProjectedData.free()
         context.pop()
         tEndcuda = time.time()
-        print('fbp cuda time is'+str(tEndcuda-tStartcuda)+' sec.')
+        # print('fbp cuda time is'+str(tEndcuda-tStartcuda)+' sec.')
         #print('cudafun time is'+str(tEndcudafun-tStartcudafun)+' sec.')
         # 将结果重塑为正确的形状
         backProjectedData = np.array(backProjectedData[:]).reshape((image.dimension[0], image.dimension[1], image.dimension[2]))
@@ -494,10 +495,11 @@ def BackProjection(projectionData, image, source, detector):
         plt.ion()
         source_trajectory = []
         detector_center_traj = []
-        for iView in range(nView):
+        for iView in tqdm(range(nView)):
             result = BackProjectView(detector_center_traj,source_trajectory,fig,ax,iView, viewSet, projectionData[:, :, iView], image, source, detector, 0)
-            print(np.max(result))
-            print(np.max(projectionData[:, :, iView]))
+            # result = BackProjectView(iView, viewSet, projectionData[:, :, iView], image, source, detector, 0)
+            # print(np.max(result))
+            # print(np.max(projectionData[:, :, iView]))
             reconImageData += result
         plt.ioff()
         plt.show(block=True)

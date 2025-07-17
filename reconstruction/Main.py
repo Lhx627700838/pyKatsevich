@@ -22,8 +22,8 @@ if __name__ == "__main__":
     # set up the scanner coordinate system
     source, detector = SetupCoordinate()
     # First compile the c-projector
-    subprocess.call(["gcc", "-shared", "-Wl,-soname,BackProject", "-o", "Projection/BackProject.so", \
-                        "-fPIC", "Projection/BackProject.c"])
+    # subprocess.call(["gcc", "-shared", "-Wl,-soname,BackProject", "-o", "Projection/BackProject.so", \
+    #                     "-fPIC", "Projection/BackProject.c"])
     # set up simImage coordinate system
 
     projectionData = tifffile.imread('filtered_proj6.tif')
@@ -31,13 +31,13 @@ if __name__ == "__main__":
     print(projectionData.shape)
     
 
-    reconImage = ImageReconstruction(projectionData, source, detector)
+    reconImage = ImageReconstruction(projectionData[:,::-1,:], source, detector)
     recondata = reconImage.data
     recondata = recondata.astype(np.float32)
     recondata = np.transpose(recondata,[2,1,0])
     print(type(recondata))
     print(type(reconImage.data))
-    tifffile.imwrite('recon.tif', recondata)
+    tifffile.imwrite('recon_voxel.tif', recondata)
     
 
     tEnd = time.time()

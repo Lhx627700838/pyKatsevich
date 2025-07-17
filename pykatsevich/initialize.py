@@ -128,14 +128,14 @@ def create_configuration(
     
     helical_conf['detector_rebin_rows_height'] = (np.pi + 2* helical_conf['half_fan_angle']) / (helical_conf['detector_rebin_rows'] - 1)
 
-    helical_conf['col_coords'] = scan_geometry['detector']['detector psize u'] * (np.arange(scan_geometry['detector']['detector cols'] + 1, dtype=np.float32)
+    helical_conf['col_coords'] = scan_geometry['detector']['detector psize u'] * (np.arange(scan_geometry['detector']['detector cols'], dtype=np.float32)
               + 0.0 # Here "0.0" is a hardcoded value of conf['detector_column_offset']
-              - 0.5*(scan_geometry['detector']['detector cols'] - 1)
+              - 0.5*(scan_geometry['detector']['detector cols'] )
               ) # EXTENDED coordinates!
 
-    helical_conf['row_coords'] = scan_geometry['detector']['detector psize v'] * (np.arange(scan_geometry['detector']['detector rows'] + 1, dtype=np.float32)
+    helical_conf['row_coords'] = scan_geometry['detector']['detector psize v'] * (np.arange(scan_geometry['detector']['detector rows'], dtype=np.float32)
               + 0.0 # Here "0.0" is a hardcoded value of conf['detector_column_offset']
-              - 0.5*(scan_geometry['detector']['detector rows'] - 1)
+              - 0.5*(scan_geometry['detector']['detector rows'] )
               ) # EXTENDED coordinates!
 
     rebin_coords =  -np.pi / 2 - helical_conf['half_fan_angle'] + helical_conf['detector_rebin_rows_height'] * np.arange(helical_conf['detector_rebin_rows'], dtype=np.float32)
@@ -145,33 +145,37 @@ def create_configuration(
     # Simplified version of original scale expression:
     # rebin_scale = 2 * helical_conf['progress_per_radian']
 
-    # skip last column from differentiation
-    col_coords = helical_conf['col_coords'][:-1]
 
-    helical_conf['fwd_rebin_row'] = np.zeros( (helical_conf['detector_rebin_rows'], helical_conf['detector cols']) )
-    for col in range(helical_conf['detector cols']):
-        row = rebin_scale * (rebin_coords + rebin_coords
-                            / np.tan(rebin_coords) * (col_coords[col]
-                            / helical_conf['scan_diameter']))
-        helical_conf['fwd_rebin_row'][:, col] = row
 
     # Hilbert filter:
-    helical_conf['kernel_radius'] = helical_conf['detector cols'] - 1
+    helical_conf['kernel_radius'] = helical_conf['detector cols']
     helical_conf['kernel_width'] = 1 + 2 * helical_conf['kernel_radius']
     helical_conf['proj_filter_width'] = helical_conf['detector cols']
 
     # Tam-Danialsson boundaries, w_top and w_bottom, from Noo et al., Eq. (78):
-    proj_row_maxs = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
-    proj_row_mins =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
-    
-    expandingfactor = 1
-    proj_row_mins = expandingfactor * proj_row_mins
-    proj_row_maxs = expandingfactor * proj_row_maxs
+    if scan_geometry['helix']['angles_range'] < 0:
+        proj_row_maxs = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+        proj_row_mins =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+        
+        expandingfactor = -1
+        proj_row_mins = expandingfactor * proj_row_mins
+        proj_row_maxs = expandingfactor * proj_row_maxs
 
-    helical_conf['proj_row_mins'] = proj_row_mins
-    helical_conf['proj_row_maxs'] = proj_row_maxs
+        helical_conf['proj_row_mins'] = proj_row_mins
+        helical_conf['proj_row_maxs'] = proj_row_maxs
+    else:
+        proj_row_mins = -helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 + np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+        proj_row_maxs =  helical_conf['progress_per_turn'] / (2*np.pi*helical_conf["scan_radius"]*helical_conf["scan_diameter"]) * (helical_conf['col_coords']**2 + helical_conf['scan_diameter']**2) * (np.pi/2 - np.arctan(helical_conf['col_coords']/helical_conf['scan_diameter']))
+        
+        expandingfactor = 1
+        proj_row_mins = expandingfactor * proj_row_mins
+        proj_row_maxs = expandingfactor * proj_row_maxs
 
-    helical_conf['T-D smoothing'] = 0.005
+        helical_conf['proj_row_mins'] = proj_row_mins
+        helical_conf['proj_row_maxs'] = proj_row_maxs
+
+        
+    helical_conf['T-D smoothing'] = scan_geometry['T-D smoothing']['factor']
 
     rebin_row = np.zeros(shape=(helical_conf['detector rows'], helical_conf['detector cols']), dtype=np.int32)
     
@@ -181,33 +185,5 @@ def create_configuration(
     fracs_0 = np.zeros(shape=(helical_conf['detector rows'], helical_conf['detector cols']))
     fracs_1 = np.ones (shape=(helical_conf['detector rows'], helical_conf['detector cols']))
     
-    for row in range(helical_conf['detector rows']):
-
-        for col in range(pos_start, helical_conf['detector cols']):
-            rebin_row[row, col] = 0
-            for rebin in range(helical_conf["detector_rebin_rows"] - 1):
-                if (helical_conf['row_coords'][row] >= helical_conf['fwd_rebin_row'][rebin, col]) \
-                    and (helical_conf['row_coords'][row] <= helical_conf['fwd_rebin_row'][rebin + 1, col]):
-                    rebin_row[row, col] = rebin
-                    break
-
-            fracs_0[row, col] = (helical_conf['row_coords'][row] - helical_conf['fwd_rebin_row'][rebin_row[row, col], col]) \
-                / (helical_conf['fwd_rebin_row'][rebin_row[row, col] + 1, col] - helical_conf['fwd_rebin_row'][rebin_row[row, col], col])
-
-        for col in range(pos_start):
-            rebin_row[row, col] = 1
-            for rebin in range(helical_conf['detector_rebin_rows'] - 1, 0, -1):
-                if (helical_conf['row_coords'][row] >= helical_conf['fwd_rebin_row'][rebin - 1, col]) \
-                    and (helical_conf['row_coords'][row] <= helical_conf['fwd_rebin_row'][rebin, col]):
-                        rebin_row[row, col] = rebin
-                        break
-            fracs_0[row, col] = (helical_conf['row_coords'][row] - helical_conf['fwd_rebin_row'][rebin_row[row, col] - 1, col]) \
-                / (helical_conf['fwd_rebin_row'][rebin_row[row, col], col] - helical_conf['fwd_rebin_row'][rebin_row[row, col] - 1, col])
-
-    fracs_1 -= fracs_0
-    
-    helical_conf['rebin_row'] = rebin_row
-    helical_conf['rebin_fracs_0'] = fracs_0
-    helical_conf['rebin_fracs_1'] = fracs_1
 
     return helical_conf

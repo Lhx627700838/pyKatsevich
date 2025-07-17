@@ -153,7 +153,7 @@ class Detector:
             drv.memcpy_dtoh(detector_coordinate, detector_coordinate_gpu)
             context.pop()
             tEnd = time.time()
-            #print('CUDA coordinate time:', round(tEnd - tStart, 8), 'sec.')
+            # print('CUDA coordinate time:', round(tEnd - tStart, 8), 'sec.')
             detector_coordinate = np.array(detector_coordinate[:]).reshape((4, dimension[0], dimension[1]))
             self.coordinate = np.round(detector_coordinate[0:3, :, :], 8)
             self.coordinate[2,:,:] += stride

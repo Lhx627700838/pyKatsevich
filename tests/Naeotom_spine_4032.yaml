@@ -20,16 +20,18 @@ geometry:
     SOD: 610
     SDD: 1113
     detector:
-      detector psize u: 0.689741074909091 # 0.3125 # 0.625 # 
+      detector psize u: 0.689741074909091 # 0.3125 # 0.625 # # for alpha 6.197134545454546e-04
       detector psize v: 0.4008525174825175 # 0.3125 # 0.625 # 
       detector rows : 144 #58
       detector cols : 1376 # 64
     helix:
       angles_count: 4032
-      pitch_mm_rad: 7.3273 # 6.4346 # pitch in mm per radian # 5.15
+      pitch_mm_rad: -7.3273 # 6.4346 # pitch in mm per radian # 5.15
       angles_range : 12.566
     options:
       detector_rebin_rows: 95
+    condition:
+      M : 95
 
 recon:
   voxel_size: 0.5 # 0.32
