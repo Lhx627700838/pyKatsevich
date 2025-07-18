@@ -91,9 +91,13 @@ def create_configuration(
     if "angles_range" in scan_geometry['helix'].keys():
         counter_clockwise_factor = scan_geometry['helix']['counter_clockwise_factor'] # -1 for clockwise, 1 for counter clockwise
         helical_conf['s_len'] =  counter_clockwise_factor * angles_count/2016*2*np.pi
+        if counter_clockwise_factor == -1:
+            print('gantry rotates clockwise')
+        else:
+            print('gantry rotates counter clockwise')
         print("lambda angles count", angles_count)
         print("lambda angles range", helical_conf['s_len'])
-        helical_conf['s_min'] = -helical_conf['s_len'] * 0.5
+        helical_conf['s_min'] = - helical_conf['s_len'] * 0.5
         helical_conf['s_max'] =  helical_conf['s_len'] * 0.5
     else:
         helical_conf['s_min'] = -np.pi + helical_conf['z_min'] / helical_conf['progress_per_radian']

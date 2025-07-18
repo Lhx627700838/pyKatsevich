@@ -25,8 +25,9 @@ from matplotlib import pyplot as plt
 import cupy as cp
 import astra
 from time import time 
+from tqdm import tqdm
 DEBUG = False
-def differentiate(sinogram, conf, tqdm_bar=False):
+def differentiate(sinogram, conf, tqdm_bar=False, interp_type = 'average_interp'):
     """
     Derivative + weighting for curved detector geometry.
     
@@ -78,7 +79,7 @@ def differentiate(sinogram, conf, tqdm_bar=False):
     output_array_half_for_interpolate = np.zeros_like(sinogram[:-1, :, :-1])
     range_obj = tqdm(range(sinogram.shape[0] - 1), desc="CF1 curved detector") if tqdm_imported and tqdm_bar else range(sinogram.shape[0] - 1)
 
-    interp_type = 'average_interp'
+    
     for k in range_obj:
         # central finite differences over λ, w, α
         # [2016, 144, 1376]
@@ -145,7 +146,334 @@ def differentiate(sinogram, conf, tqdm_bar=False):
 
     return output_array
 
-def differentiate_noo(projections, conf):
+def differentiate_noo(projections, conf, epsilon=0.5):
+    """
+    projections: (N_lambda, N_w, N_alpha)
+    conf:
+      delta_s
+      col_coords
+      row_coords
+      scan_radius
+      scan_diameter
+      progress_per_turn
+    """
+
+    N_lambda, N_w, N_alpha = projections.shape
+
+    delta_s = conf['delta_s']
+    alpha_coords = conf['col_coords'][:-1]  # size 1376
+    w_coords     = conf['row_coords']  # size 144
+    R0           = conf['scan_radius']
+    D            = conf['scan_diameter']
+    P            = conf['progress_per_turn']
+
+    # define n (centerline direction)
+    n = np.array([0, 0, 1])   # L axis along z
+
+    # prepare alpha direction vectors
+    alpha_vectors = np.zeros((N_alpha, 3))
+    alpha_vectors[:,0] = np.sin(alpha_coords)
+    alpha_vectors[:,1] = -np.cos(alpha_coords)
+    alpha_vectors[:,2] = 0
+
+    # prepare source trajectory
+    lambdas = np.arange(N_lambda) * delta_s
+
+    # source positions a(lambda):
+    source_pos = np.zeros((N_lambda, 3))
+    source_pos[:,0] = R0 * np.cos(lambdas)
+    source_pos[:,1] = R0 * np.sin(lambdas)
+    source_pos[:,2] = P/(2*np.pi) * lambdas
+
+    # output array
+    g_prime = np.zeros_like(projections)
+
+    for k in tqdm(range(1, N_lambda - 1)):
+        lam = lambdas[k]
+        lam_eps_plus = lam + epsilon * delta_s
+        lam_eps_minus = lam - epsilon * delta_s
+
+        a_k = source_pos[k]
+        a_k1_plus = source_pos[k + 1]
+        a_k1_minus = source_pos[k - 1]
+
+        for i in range(N_alpha):
+            alpha_vec = alpha_vectors[i]
+
+            # b(lambda + eps*delta, alpha)
+            # Eq.25: b = a + ((x0 - a) ⋅ (I - n⊗n)) / ((alpha ⋅ (I - n⊗n)) ⋅ alpha) * alpha
+            # Simplified as in previous steps:
+            n = np.array([0, 0, 1])
+            alpha_proj = alpha_vec - n * (alpha_vec @ n)
+
+            a_eps_plus = np.array([
+                R0 * np.cos(lam_eps_plus),
+                R0 * np.sin(lam_eps_plus),
+                (P / (2 * np.pi)) * lam_eps_plus
+            ])
+
+            a_eps_minus = np.array([
+                R0 * np.cos(lam_eps_minus),
+                R0 * np.sin(lam_eps_minus),
+                (P / (2 * np.pi)) * lam_eps_minus
+            ])
+
+            numer_plus = -a_eps_plus @ alpha_proj
+            numer_minus = -a_eps_minus @ alpha_proj
+            denom = 1.0 - (alpha_vec @ n) ** 2
+            b_eps_plus = a_eps_plus + (numer_plus / denom) * alpha_vec
+            b_eps_minus = a_eps_minus + (numer_minus / denom) * alpha_vec
+
+            # Compute direction vectors
+            dir1_plus = b_eps_plus - a_k
+            dir1_plus /= np.linalg.norm(dir1_plus)
+
+            dir2_plus = b_eps_plus - a_k1_plus
+            dir2_plus /= np.linalg.norm(dir2_plus)
+
+            # Convert to angles
+            alpha1_val_plus = np.arctan2(dir1_plus[0], -dir1_plus[1])
+            alpha2_val_plus = np.arctan2(dir2_plus[0], -dir2_plus[1])
+
+            # Find nearest neighbor indices in alpha_coords
+            alpha1_idx_plus = np.argmin(np.abs(alpha_coords - alpha1_val_plus))
+            alpha2_idx_plus = np.argmin(np.abs(alpha_coords - alpha2_val_plus))
+
+            # Compute direction vectors
+            dir1_minus = b_eps_minus - a_k
+            dir1_minus /= np.linalg.norm(dir1_minus)
+
+            dir2_minus = b_eps_minus - a_k1_minus
+            dir2_minus /= np.linalg.norm(dir2_minus)
+
+            # Convert to angles
+            alpha1_val_minus = np.arctan2(dir1_minus[0], -dir1_minus[1])
+            alpha2_val_minus = np.arctan2(dir2_minus[0], -dir2_minus[1])
+            
+            # Find nearest neighbor indices in alpha_coords
+            alpha1_idx_minus = np.argmin(np.abs(alpha_coords - alpha1_val_minus))
+            alpha2_idx_minus = np.argmin(np.abs(alpha_coords - alpha2_val_minus))
+
+            for j in range(N_w):
+                g_val1_plus = projections[k, j, alpha1_idx_plus]
+                g_val2_plus = projections[k + 1, j, alpha2_idx_plus]
+                g_plus_val = (1 - epsilon) * g_val1_plus + epsilon * g_val2_plus
+
+                g_val1_minus = projections[k, j, alpha1_idx_minus]
+                g_val2_minus = projections[k + 1, j, alpha2_idx_minus]
+                g_minus_val = (1 - epsilon) * g_val1_minus + epsilon * g_val2_minus
+
+                g_prime[k, j, i] = (g_plus_val - g_minus_val) / (2 * epsilon * delta_s)
+    return g_prime
+
+import cupy as cp
+import numpy as np
+from tqdm import tqdm
+
+import cupy as cp
+from tqdm import tqdm
+
+def differentiate_noo_gpu(projections, conf, epsilon=0.5):
+    N_lambda, N_w, N_alpha = projections.shape
+
+    delta_s = conf['delta_s']
+    alpha_coords = cp.asarray(conf['col_coords'][:-1], dtype=cp.float16)
+    w_coords = cp.asarray(conf['row_coords'][:-1], dtype=cp.float16)
+    R0 = conf['scan_radius']
+    D = conf['scan_diameter']
+    P = conf['progress_per_turn']
+    source_pos_z = conf['source_pos']
+    s_min = conf['s_min']
+    lambdas = conf['source_pos']
+    lambdas = cp.asarray(lambdas, dtype=cp.float16)
+    print('delta_s: ', delta_s)
+    print('lambdas: ', lambdas)
+
+    n = cp.array([0, 0, 1], dtype=cp.float16)
+    projections = cp.asarray(projections, dtype=cp.float16)
+    # pdb.set_trace()
+
+    # calculate theta_c according to formula (3)-(7), referencing NOO 2003.
+    ## e_u
+    e_u = cp.zeros((N_lambda, 3), dtype=cp.float16)
+    e_u[:, 0] = - cp.sin(lambdas)
+    e_u[:, 1] = cp.cos(lambdas)
+    ## e_v
+    e_v = cp.zeros((N_lambda, 3), dtype=cp.float16)
+    e_v[:, 0] = - cp.cos(lambdas)
+    e_v[:, 1] = - cp.sin(lambdas)
+    ## e_w
+    e_w = cp.array([0, 0, 1], dtype=cp.float16)
+
+    # theta_c, namely also the alpha_vectors as NOO 2007
+    ## (4000, 144, 1376)
+    ## broadcast alpha and w: (N_w, N_alpha, 1)
+    alpha = cp.reshape(alpha_coords, (1, N_alpha, 1))
+    w = cp.reshape(w_coords, (N_w, 1, 1))
+    alpha = cp.broadcast_to(alpha, (N_lambda, 1, N_alpha, 1))
+    w     = cp.broadcast_to(w,     (N_lambda, N_w, 1, 1))
+    ## expand e_u, e_v: (N_lambda, 1, 1, 3)
+    e_u_exp = e_u[:, None, None, :]
+    e_v_exp = e_v[:, None, None, :]
+    ## compute numerator
+    D_sin_alpha = D * cp.sin(alpha)
+    D_cos_alpha = D * cp.cos(alpha)
+    ## alpha_vectors in coordinates
+    term1 = D_sin_alpha * e_u_exp       # (N_lambda, 1, N_alpha, 3)
+    term2 = D_cos_alpha * e_v_exp       # (N_lambda, N_w, 1, 3)
+    term3 = w * e_w[None, None, None, :]  # (1, N_w, 1, 3)
+    numerator = term1 + term2 + term3
+    denominator = cp.sqrt(D**2 + w**2)  # shape: (1, N_w, 1)
+    alpha_vectors = numerator / denominator  # theta_c, shape: (N_lambda, N_w, N_alpha, 3)
+    alpha_vectors /= cp.linalg.norm(alpha_vectors, axis=-1, keepdims=True)
+
+    # 手动清理中间变量，释放显存
+    del term1, term2, term3, numerator, denominator
+    cp._default_memory_pool.free_all_blocks()  # 释放显存池中未被用的 block
+
+    # calculate the right part of b without a_lambda
+    # actually this part is also relative to lambda, because alpha should use the absolute coordinates
+    # instead of relative coordinates
+    b_right_part = cp.zeros_like(alpha_vectors, dtype=cp.float16)
+    batch_size = 500  # 你可以尝试 500、1000、2000 等 batch 大小
+    for start in tqdm(range(0, N_lambda, batch_size)):
+        end = min(start + batch_size, N_lambda)
+        # 只处理 alpha_vectors[start:end]，大小是 (batch, 144, 1376, 3)
+        # 然后计算 dot_product 和 alpha_proj
+        alpha_vec_batch = alpha_vectors[start:end]  # batch copy # (1000, 144, 1376, 3)
+        dot = cp.dot(alpha_vec_batch, n) # (1000, 144, 1376)
+        dot = dot[:,:,:, None] # (1000, 144, 1376, 1)
+        alpha_proj_batch = alpha_vec_batch - dot * n # (1000, 144, 1376, 3)
+        denom_batch = 1.0 - dot**2 # (1000, 144, 1376)
+        b_right_part[start:end] = alpha_proj_batch/denom_batch*alpha_vec_batch
+        
+        # 后续使用 b_right_part
+        del alpha_vec_batch, dot, alpha_proj_batch, denom_batch
+        cp._default_memory_pool.free_all_blocks()  # 可选：手动释放显存
+
+    # to get b- and b+
+    source_pos = cp.zeros((N_lambda, 3), dtype=cp.float16)
+    source_pos[:, 0] = R0 * cp.cos(lambdas)
+    source_pos[:, 1] = R0 * cp.sin(lambdas)
+    source_pos[:, 2] = (P / (2 * cp.pi)) * lambdas
+
+    g_prime = cp.zeros_like(projections)
+    a_all = source_pos[1:-1]    # shape: (N_lambda-2, 3)
+    a_all = a_all[:, None, None, :] # shape: (N_lambda-2, 1, 1, 3)
+    center_dir = cp.array([0,0,0], dtype=cp.float16)  - a_all # middle line crosses rotation center
+    
+    N_lambda = len(lambdas)
+    alpha1_idx_plus_all = []
+    alpha2_idx_plus_all = []
+    alpha1_idx_minus_all = []
+    alpha2_idx_minus_all = []
+
+    batch_size = 100
+    for start in tqdm(range(0, N_lambda - 2, batch_size)):
+        end = min(start + batch_size, N_lambda - 2)
+        batch_len = end - start
+
+        lambda_eps_plus = lambdas[start+1:end+1] + epsilon * delta_s
+        lambda_eps_minus = lambdas[start+1:end+1] - epsilon * delta_s
+        
+        ## get b- and b+ according to (26) Noo 2007
+        a_plus  = source_pos[start+2:end+2][:, None, None, :] # (batch, 1, 1, 3)
+        a_minus = source_pos[start:end][:, None, None, :]
+        a_all   = source_pos[start+1:end+1][:, None, None, :]
+
+        a_eps_plus = cp.stack([
+            R0 * cp.cos(lambda_eps_plus),
+            R0 * cp.sin(lambda_eps_plus),
+            (P / (2 * cp.pi)) * lambda_eps_plus
+        ], axis=1)[:, None, None, :]
+
+        a_eps_minus = cp.stack([
+            R0 * cp.cos(lambda_eps_minus),
+            R0 * cp.sin(lambda_eps_minus),
+            (P / (2 * cp.pi)) * lambda_eps_minus
+        ], axis=1)[:, None, None, :]
+
+        b_right = b_right_part[start+1:end+1]  # (batch, N_w, N_alpha, 3)
+
+        b_eps_plus  = a_eps_plus - a_eps_plus * b_right
+        b_eps_minus = a_eps_minus - a_eps_minus * b_right
+
+        ## get the two terms in (24) Noo 2007
+        dir_plus_a_plus = b_eps_plus - a_plus
+        dir_plus_a = b_eps_plus - a_all
+        dir_minus_a_minus = b_eps_minus - a_minus
+        dir_minus_a = b_eps_minus - a_all
+
+        dir_plus_a_plus  /= cp.linalg.norm(dir_plus_a_plus, axis=3, keepdims=True)
+        dir_plus_a  /= cp.linalg.norm(dir_plus_a, axis=3, keepdims=True)
+        dir_minus_a_minus /= cp.linalg.norm(dir_minus_a_minus, axis=3, keepdims=True)
+        dir_minus_a /= cp.linalg.norm(dir_minus_a, axis=3, keepdims=True)
+
+        alpha_vectors_batch = alpha_vectors[start+1:end+1]
+        
+        # use dot product to find the idx of four direction items on detector panel
+        def find_best_alpha_index(dir_vectors, alpha_vectors_batch):
+            """
+            Vectorized over (N_w, N_alpha), loop over batch only.
+
+            Parameters:
+                dir_vectors:         (B, N_w, N_alpha, 3)
+                alpha_vectors_batch: (B, N_w, N_alpha_candidates, 3)
+
+            Returns:
+                best_idx:            (B, N_w, N_alpha)
+            """
+            B, N_w, N_alpha = dir_vectors.shape[:3]
+            N_alpha_candidates = alpha_vectors_batch.shape[2]
+            best_idx = cp.empty((B, N_w, N_alpha), dtype=cp.int32)
+
+            for b in range(B):
+                dir_b = dir_vectors[b]                       # (N_w, N_alpha, 3)
+                alpha_b = alpha_vectors_batch[b]             # (N_w, N_alpha_candidates, 3)
+
+                # 使用 einsum 广播乘积：→ (N_w, N_alpha, N_alpha_candidates)
+                dot_prods = cp.einsum('wij,wkj->wik', dir_b, alpha_b)
+
+                # 找到最大点积对应的 index
+                best_idx[b] = cp.argmax(dot_prods, axis=-1)  # (N_w, N_alpha)
+
+            return best_idx
+
+        
+        detector_idx_plus_a_plus     = find_best_alpha_index(dir_plus_a_plus, alpha_vectors_batch)
+        detector_idx_plus_a          = find_best_alpha_index(dir_plus_a,      alpha_vectors_batch)
+        detector_idx_minus_a_minus   = find_best_alpha_index(dir_minus_a_minus, alpha_vectors_batch)
+        detector_idx_minus_a         = find_best_alpha_index(dir_minus_a,     alpha_vectors_batch)
+
+        g_plus  = projections[start+2:end+2]
+        g_minus = projections[start:end]
+        g_all   = projections[start+1:end+1]
+        # 按照 detector alpha 索引取出投影值
+        def lookup_g(proj_batch, idx_alpha):
+            # proj_batch: (B, 144, 1376)
+            # idx_alpha: (B, 144, 1376) — α 的索引
+            proj_batch = proj_batch[:, :, :, None]  # → shape: (B, 144, 1376, 1)
+            idx_alpha = idx_alpha[:, :, :, None]    # → shape: (B, 144, 1376, 1)
+            return cp.take_along_axis(proj_batch, idx_alpha, axis=2).squeeze(-1)
+
+        # 获取四个 g 值
+        # pdb.set_trace()
+        g_val_plus_a        = lookup_g(g_all,  detector_idx_plus_a)
+        g_val_plus_a_plus   = lookup_g(g_plus, detector_idx_plus_a_plus)
+        g_val_minus_a       = lookup_g(g_all,  detector_idx_minus_a)
+        g_val_minus_a_minus = lookup_g(g_minus, detector_idx_minus_a_minus)
+
+        # 插值 (NOO 2007, Eq. 24)
+        g_eps_plus  = (1 - epsilon) * g_val_plus_a + epsilon * g_val_plus_a_plus
+        g_eps_minus = (1 - epsilon) * g_val_minus_a + epsilon * g_val_minus_a_minus
+
+        # 微分近似 (Eq. 25)
+        g_prime[start+1:end+1] = (g_eps_plus - g_eps_minus) / (2 * epsilon * delta_s)
+        
+    return g_prime
+
+
+def differentiate_noo_simple(projections, conf, epsilon=0.5):
     """
     projections: (N_lambda, N_w, N_alpha)
     conf:
@@ -741,7 +1069,7 @@ def bw_Kcurve_rebinning_fast(input_array, wk_index_map, conf ,oringinaldata):
 def filter_katsevich(
     input_array: np.ndarray, # The shape expected is (views, rows, columns)
     conf: dict,
-    verbosity_options: dict = {}
+    verbosity_options: dict = {}, interp_type = 'average_interp'
 ):
     """
     Run all filtering steps.
@@ -765,7 +1093,7 @@ def filter_katsevich(
     if diff_print_time and not diff_tqdm_bar:
         print("Derivative at constant direction step", end="... ")
     t1 = time()
-    diff_proj = differentiate(input_array, conf, diff_tqdm_bar)
+    diff_proj = differentiate(input_array, conf, diff_tqdm_bar, interp_type = interp_type)
     t2 = time()
     if diff_print_time:
         print(f"differentiate Done in {t2-t1:.4f} seconds")

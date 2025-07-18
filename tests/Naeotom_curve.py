@@ -61,10 +61,6 @@ def test_config(settings_file):
 
 
 def test_pipeline(settings_file):
-
-    from tests.common import phantom_objects_3d, project, animate_volume, backproject
-
-    
     from matplotlib import pyplot as plt
     from time import time
     import yaml
@@ -94,12 +90,11 @@ def test_pipeline(settings_file):
     recon_shape = (recon['rows'], recon['columns'], recon['slices']) 
     voxel_size = recon['voxel_size']
     geom = yaml_settings['geometry']
-    
-
 
     # sinogram = tifffile.imread(r"E:\Projects\Liu_proj\pykats\pyKatsevich\scan_001_flat_helix_projections.tif")
     sinogram = tifffile.imread(r"D020_interpolated_Th1_3000_4000.tiff")
     sinogram = tifffile.imread(r"CAT_Th1_interpolated_Th1_info_3000_4000.tiff")
+    sinogram = tifffile.imread(r"CAT_Th1_interpolated_Th1_info_1000_10080.tiff")
     sinogram = sinogram.transpose(0, 2, 1)
     print(sinogram.shape)
     '''import matplotlib.pyplot as plt
@@ -137,6 +132,61 @@ def test_pipeline(settings_file):
     tifffile.imwrite('recon.tif',rec_astra)
 
 import numpy as np
+import cupy as cp
+def only_differentiate(settings_file):
+    import yaml
+    import os
+    import astra
+    import sys
+    import tifffile
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from pykatsevich_curve.initialize import create_configuration
+    from pykatsevich_curve.filter import differentiate_noo, differentiate_noo_gpu, differentiate
+    try:
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+    except:
+        print("Failed to get __file__, using current working directory instead")
+        test_dir = os.getcwd()
+
+    # 拼接 yaml 文件完整路径
+    yaml_path = os.path.join(test_dir, settings_file)
+
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f"配置文件未找到: {yaml_path}")
+
+    with open(yaml_path, "r") as file:
+        yaml_settings = yaml.safe_load(file)
+
+    recon = yaml_settings['recon']
+    recon_shape = (recon['rows'], recon['columns'], recon['slices']) 
+    voxel_size = recon['voxel_size']
+    geom = yaml_settings['geometry']
+    
+    input_array = tifffile.imread(r"CAT_Th1_interpolated_Th1_info_3000_4000.tiff")
+    input_array = input_array.transpose(0, 2, 1)
+    print('input shape: ', input_array.shape)
+    vol_geom, proj_geom, lambda_list = generate_astra_geom(recon_shape, voxel_size, geom)
+    print('lambda list:', lambda_list)
+
+    angles_count = input_array.shape[0]
+    conf=create_configuration(
+        angles_count,
+        geom,
+        vol_geom,
+        yaml_settings['geometry'].get('options', {})
+    )
+
+    method = 'noo2007'
+    if method == 'noo2007':
+        diff_proj = differentiate_noo_gpu(input_array, conf, epsilon=0.5)
+        diff_proj = cp.asnumpy(diff_proj).astype(np.float32)
+        diff_file = 'filtered_proj1_noo_differentiate.tif'
+    elif method == 'noo2003':
+        diff_proj = differentiate(input_array, conf)
+        diff_file = 'filtered_proj1_differentiate.tif'
+    import tifffile
+    tifffile.imwrite(diff_file,diff_proj)
+
 def only_reconstruct_pipeline_astra(settings_file):
     import yaml
     import os

@@ -53,7 +53,8 @@ def reconstruct(
     filtered_projections = filter_katsevich(
             input_array,
             conf,
-            filt_opts
+            filt_opts, 
+            interp_type = 'average_interp'
         )
     
     sino_td = sino_weight_td(filtered_projections, conf, True)
